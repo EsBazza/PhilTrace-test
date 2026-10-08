@@ -66,34 +66,21 @@ function MapContent() {
     if (r) drillDown.setRegion(r);
     if (p) drillDown.setProvince(p);
     if (m) drillDown.setMunicipality(m);
-    if (projId) setSelectedProjectId(projId);
-    else if (contractor) {
+    if (projId) {
+      router.push(`/projects/${projId}`);
+    } else if (contractor) {
       fetch(`/api/projects?q=${encodeURIComponent(contractor)}&limit=1`)
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           const firstProj = data?.projects?.[0];
           if (firstProj?.id) {
-            setSelectedProjectId(firstProj.id);
+            router.push(`/projects/${firstProj.id}`);
           }
         })
         .catch(console.error);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
-
-  // ─── Fly to selected project ──────────────────────────────
-  useEffect(() => {
-    if (!selectedProjectId || !isMapLoaded || !mapRef.current) return;
-    fetch(`/api/projects/${selectedProjectId}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        const p = data?.project || data;
-        if (p?.gpsLat && p?.gpsLng) {
-          flyTo([p.gpsLng, p.gpsLat], 15);
-        }
-      })
-      .catch(console.error);
-  }, [selectedProjectId, isMapLoaded, mapRef, flyTo]);
 
   // ─── Unregister any stale / broken service workers ───
   useEffect(() => {
