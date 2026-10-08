@@ -1,26 +1,24 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { formatCurrency } from '@/lib/format';
 import { createGeoJSONCircle } from '@/lib/geo';
 import DrillDownPanel from './components/DrillDownPanel';
-import ProjectSidebar from './components/ProjectSidebar';
-import ProjectInspectionDrawer from '@/components/project-inspection-drawer';
 import { useMapInstance } from './hooks/useMapInstance';
 import { useLocationHierarchy } from './hooks/useLocationHierarchy';
 import { useDrillDown } from './hooks/useDrillDown';
 
 // ─── Main Map Content ───────────────────────────────────────
 function MapContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
   // Basemap state
   const [basemap, setBasemap] = useState<'satellite' | 'dark' | 'streets'>('satellite');
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
   // Near Me (20km) state
   const [isNearMeActive, setIsNearMeActive] = useState<boolean>(false);
@@ -670,12 +668,12 @@ function MapContent() {
           }
         });
 
-        // Click on unclustered pin → open ProjectInspectionDrawer directly on map
+        // Click on unclustered pin → navigate directly to full project dossier page
         map.on('click', 'unclustered-point', (e) => {
           const features = map.queryRenderedFeatures(e.point, { layers: ['unclustered-point'] });
           const projId = features[0]?.properties?.i || features[0]?.properties?.id;
           if (projId) {
-            setSelectedProjectId(projId);
+            router.push(`/projects/${projId}`);
           }
         });
 
@@ -866,23 +864,6 @@ function MapContent() {
         onRetry={handleRetry}
       />
 
-      {/* Project Sidebar */}
-      {((drillDown.municipality || drillDown.barangay || isNearMeActive) && sidebarProjects.length > 0) && (
-        <ProjectSidebar
-          title={isNearMeActive ? 'Projects Near Me (20km)' : (drillDown.barangay || drillDown.municipality)}
-          projects={sidebarProjects}
-          onSelectProject={(id) => setSelectedProjectId(id)}
-          onClose={() => {
-            if (isNearMeActive) {
-              handleNearMeToggle();
-            } else {
-              drillDown.setMunicipality('');
-              drillDown.setBarangay('');
-            }
-          }}
-        />
-      )}
-
       {/* Floating Diagnostic / Error Notification Toast */}
       {errorMessage && (
         <div className="absolute bottom-6 left-6 z-30 max-w-md bg-slate-900/95 backdrop-blur-md border border-rose-500/50 text-white p-3.5 rounded-2xl shadow-2xl flex items-center justify-between gap-3 text-xs">
@@ -900,15 +881,6 @@ function MapContent() {
             Retry ↻
           </button>
         </div>
-      )}
-
-      {/* Project Inspection Drawer directly on map */}
-      {selectedProjectId && (
-        <ProjectInspectionDrawer
-          projectId={selectedProjectId}
-          onClose={() => setSelectedProjectId(null)}
-          userLocation={userLocation}
-        />
       )}
     </div>
   );
