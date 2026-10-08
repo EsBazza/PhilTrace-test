@@ -48,6 +48,9 @@ function MapContent() {
 
   // Total projects count for UI badge
   const [totalPoints, setTotalPoints] = useState<number>(248220);
+  const [loadingBorders, setLoadingBorders] = useState<boolean>(true);
+  const [loadingProjects, setLoadingProjects] = useState<boolean>(true);
+  const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isReady = isMapLoaded;
 
   // ─── Load URL params ──────────────────────────────────────
@@ -113,28 +116,63 @@ function MapContent() {
 
     // Tier 1: National view (zoom < 9 and not drilled down) -> load nationwide initial clusters (~86 KB)
     if (zoom < 9 && !isDrilledDown) {
-      const applyNationwide = (data: any) => {
+      const applyNationwideGradually = (data: any) => {
         setTotalPoints(248220);
         const source = map.getSource(clusterSourceRef.current) as mapboxgl.GeoJSONSource | undefined;
-        if (source) {
-          source.setData(data);
+        if (!source) {
+          setLoadingProjects(false);
+          return;
         }
+
+        const features = data.features || [];
+        if (features.length <= 10) {
+          source.setData(data);
+          setLoadingProjects(false);
+          return;
+        }
+
+        if (streamTimerRef.current) clearInterval(streamTimerRef.current);
+        setLoadingProjects(true);
+
+        // Gradually reveal clusters across 4 progressive waves spaced by 65ms
+        const total = features.length;
+        const steps = 4;
+        let step = 0;
+
+        streamTimerRef.current = setInterval(() => {
+          step++;
+          const count = Math.min(total, Math.ceil((step / steps) * total));
+          source.setData({
+            type: 'FeatureCollection',
+            features: features.slice(0, count),
+          });
+
+          if (step >= steps) {
+            if (streamTimerRef.current) clearInterval(streamTimerRef.current);
+            streamTimerRef.current = null;
+            setLoadingProjects(false);
+          }
+        }, 65);
       };
 
       if (nationwideClustersRef.current) {
-        applyNationwide(nationwideClustersRef.current);
+        applyNationwideGradually(nationwideClustersRef.current);
         return;
       }
 
+      setLoadingProjects(true);
       try {
         const res = await fetch('/geo/nationwide_initial_clusters.json');
         if (res.ok) {
           const data = await res.json();
           nationwideClustersRef.current = data;
-          applyNationwide(data);
+          applyNationwideGradually(data);
+        } else {
+          setLoadingProjects(false);
         }
       } catch (err) {
         console.error('Failed to load nationwide initial clusters:', err);
+        setLoadingProjects(false);
       }
       return;
     }
@@ -165,11 +203,15 @@ function MapContent() {
     if (drillDown.province) params.set('province', drillDown.province);
 
     const reqId = ++requestSeqRef.current;
+    setLoadingProjects(true);
 
     try {
       const res = await fetch(`/api/map/spatial?${params.toString()}`);
       if (reqId !== requestSeqRef.current) return;
-      if (!res.ok) return;
+      if (!res.ok) {
+        setLoadingProjects(false);
+        return;
+      }
       const geojson = await res.json();
       if (reqId !== requestSeqRef.current) return;
 
@@ -180,6 +222,7 @@ function MapContent() {
           if (source) {
             source.setData(geojson);
           }
+          setLoadingProjects(false);
         };
 
         if (map.isStyleLoaded() && map.getSource(clusterSourceRef.current)) {
@@ -187,9 +230,12 @@ function MapContent() {
         } else {
           map.once('style.load', updateData);
         }
+      } else {
+        setLoadingProjects(false);
       }
     } catch (err: any) {
       console.error('Error fetching server spatial clusters:', err);
+      setLoadingProjects(false);
     }
   }, [mapRef, drillDown.province, drillDown.municipality, drillDown.barangay, drillDown.region]);
 
@@ -337,6 +383,7 @@ function MapContent() {
 
       // ── 1. PROVINCE BORDERS LAYER (Fast clean lightweight boundary display) ──
       if (!map.getSource('province-source')) {
+        setLoadingBorders(true);
         map.addSource('province-source', {
           type: 'geojson',
           data: '/geo/provinces_lowres.json',
@@ -352,6 +399,17 @@ function MapContent() {
             'line-opacity': 0.75,
           },
         });
+
+        const onData = (e: any) => {
+          if (e.sourceId === 'province-source' && e.isSourceLoaded) {
+            setLoadingBorders(false);
+            map.off('sourcedata', onData);
+          }
+        };
+        map.on('sourcedata', onData);
+        setTimeout(() => setLoadingBorders(false), 500);
+      } else {
+        setLoadingBorders(false);
       }
 
       // ── 2. NEAR ME 20KM CIRCLE & USER PIN LAYERS ──
@@ -784,6 +842,8 @@ function MapContent() {
         isNearMeActive={isNearMeActive}
         isLocating={isLocating}
         onNearMeToggle={handleNearMeToggle}
+        loadingBorders={loadingBorders}
+        loadingProjects={loadingProjects}
       />
 
       {/* Project Sidebar */}

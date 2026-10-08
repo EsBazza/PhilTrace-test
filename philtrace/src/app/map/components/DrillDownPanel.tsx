@@ -50,6 +50,8 @@ interface DrillDownPanelProps {
   isNearMeActive?: boolean;
   isLocating?: boolean;
   onNearMeToggle?: () => void;
+  loadingBorders?: boolean;
+  loadingProjects?: boolean;
 }
 
 export default function DrillDownPanel({
@@ -75,6 +77,8 @@ export default function DrillDownPanel({
   isNearMeActive = false,
   isLocating = false,
   onNearMeToggle,
+  loadingBorders = false,
+  loadingProjects = false,
 }: DrillDownPanelProps) {
   const currentProvinces = useMemo(() => getProvinces(region), [region, getProvinces]);
   const currentCities = useMemo(() => getCities(region, province), [region, province, getCities]);
@@ -186,6 +190,22 @@ export default function DrillDownPanel({
               <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
               <span className="font-semibold text-blue-700 dark:text-blue-400">Loading...</span>
             </div>
+          )}
+
+          {/* Loading borders status */}
+          {loadingBorders && (
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-50 dark:bg-sky-950/70 border border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-300 font-bold text-[11px] animate-pulse">
+              <span className="w-2 h-2 rounded-full bg-sky-500 animate-ping" />
+              Loading borders...
+            </span>
+          )}
+
+          {/* Loading projects / clusters status */}
+          {loadingProjects && (
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/70 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-bold text-[11px] animate-pulse">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+              Syncing projects...
+            </span>
           )}
         </div>
       </div>
