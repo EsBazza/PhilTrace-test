@@ -2,7 +2,7 @@
  * Geolocation and distance calculation utilities for MapaTunAI.
  */
 
-export const MAX_REVIEW_RADIUS_KM = 15;
+export const MAX_REVIEW_RADIUS_KM = 20;
 
 /**
  * Calculates the great-circle distance between two points on the Earth's surface
@@ -50,7 +50,7 @@ export function calculateHaversineDistance(
 }
 
 /**
- * Returns true if the user's coordinates are within the maximum allowed rating radius (15km).
+ * Returns true if the user's coordinates are within the maximum allowed rating radius (20km).
  */
 export function isWithinReviewRadius(
   userLat: number,
@@ -63,5 +63,46 @@ export function isWithinReviewRadius(
   return {
     isWithin: distanceKm <= maxRadiusKm,
     distanceKm: Math.round(distanceKm * 10) / 10,
+  };
+}
+
+/**
+ * Creates a GeoJSON Polygon representing a circle with the given radius in kilometers
+ * using Haversine geodesic projection.
+ */
+export function createGeoJSONCircle(
+  centerLng: number,
+  centerLat: number,
+  radiusKm = 20,
+  points = 64
+) {
+  const coordinates: [number, number][] = [];
+  const R = 6371; // Earth radius in km
+  const centerLatRad = (centerLat * Math.PI) / 180;
+  const centerLngRad = (centerLng * Math.PI) / 180;
+  const dRad = radiusKm / R;
+
+  for (let i = 0; i <= points; i++) {
+    const bearing = (i * 2 * Math.PI) / points;
+    const latRad = Math.asin(
+      Math.sin(centerLatRad) * Math.cos(dRad) +
+      Math.cos(centerLatRad) * Math.sin(dRad) * Math.cos(bearing)
+    );
+    const lngRad =
+      centerLngRad +
+      Math.atan2(
+        Math.sin(bearing) * Math.sin(dRad) * Math.cos(centerLatRad),
+        Math.cos(dRad) - Math.sin(centerLatRad) * Math.sin(latRad)
+      );
+    coordinates.push([(lngRad * 180) / Math.PI, (latRad * 180) / Math.PI]);
+  }
+
+  return {
+    type: 'Feature' as const,
+    geometry: {
+      type: 'Polygon' as const,
+      coordinates: [coordinates],
+    },
+    properties: {},
   };
 }

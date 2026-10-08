@@ -1,7 +1,35 @@
 import { prisma } from '@/lib/prisma';
 
+interface CachedStats {
+  regions: Array<{
+    name: string;
+    totalProjects: number;
+    flaggedProjects: number;
+    totalBudget: number;
+    anomalyDensity: number;
+  }>;
+  totalContracts: number;
+  totalBudget: number;
+  lastSync: string | null;
+}
+
+let cachedStats: CachedStats | null = null;
+let cacheExpiry: number = 0;
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+const CACHE_HEADERS = {
+  'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
+};
+
 export async function GET() {
   try {
+    const now = Date.now();
+    if (cachedStats && now < cacheExpiry) {
+      return Response.json(cachedStats, {
+        headers: CACHE_HEADERS,
+      });
+    }
+
     const [rows, lastProject] = await Promise.all([
       prisma.$queryRaw<
         Array<{
@@ -48,21 +76,26 @@ export async function GET() {
     const totalContracts = regionStats.reduce((sum: number, r: { totalProjects: number }) => sum + r.totalProjects, 0);
     const totalBudget = regionStats.reduce((sum: number, r: { totalBudget: number }) => sum + r.totalBudget, 0);
 
-    return Response.json(
-      {
-        regions: regionStats,
-        totalContracts,
-        totalBudget,
-        lastSync: lastProject?.updatedAt?.toISOString() ?? null,
-      },
-      {
-        headers: {
-          'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
-        },
-      }
-    );
+    const data: CachedStats = {
+      regions: regionStats,
+      totalContracts,
+      totalBudget,
+      lastSync: lastProject?.updatedAt?.toISOString() ?? null,
+    };
+
+    cachedStats = data;
+    cacheExpiry = now + CACHE_TTL_MS;
+
+    return Response.json(data, {
+      headers: CACHE_HEADERS,
+    });
   } catch (error) {
     console.error('Error fetching stats:', error);
+    if (cachedStats) {
+      return Response.json(cachedStats, {
+        headers: CACHE_HEADERS,
+      });
+    }
     return Response.json(
       { error: 'Failed to fetch stats' },
       { status: 500 }

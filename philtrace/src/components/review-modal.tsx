@@ -8,6 +8,8 @@ interface ReviewModalProps {
   projectName: string;
   projectLat?: number;
   projectLng?: number;
+  initialUserLat?: number;
+  initialUserLng?: number;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -18,6 +20,8 @@ export default function ReviewModal({
   projectName,
   projectLat,
   projectLng,
+  initialUserLat,
+  initialUserLng,
   isOpen,
   onClose,
   onSuccess,
@@ -37,9 +41,11 @@ export default function ReviewModal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // GPS Geolocation State
-  const [userLat, setUserLat] = useState<number | null>(null);
-  const [userLng, setUserLng] = useState<number | null>(null);
-  const [geoStatus, setGeoStatus] = useState<'idle' | 'locating' | 'granted' | 'denied' | 'unsupported'>('idle');
+  const [userLat, setUserLat] = useState<number | null>(initialUserLat ?? null);
+  const [userLng, setUserLng] = useState<number | null>(initialUserLng ?? null);
+  const [geoStatus, setGeoStatus] = useState<'idle' | 'locating' | 'granted' | 'denied' | 'unsupported'>(
+    initialUserLat !== undefined && initialUserLng !== undefined ? 'granted' : 'idle'
+  );
   const [geoError, setGeoError] = useState<string | null>(null);
 
   const requestGeolocation = useCallback(() => {
@@ -74,7 +80,13 @@ export default function ReviewModal({
   useEffect(() => {
     if (isOpen) {
       const timer = setTimeout(() => {
-        requestGeolocation();
+        if (initialUserLat !== undefined && initialUserLng !== undefined && initialUserLat !== null && initialUserLng !== null) {
+          setUserLat(initialUserLat);
+          setUserLng(initialUserLng);
+          setGeoStatus('granted');
+        } else {
+          requestGeolocation();
+        }
         setErrorMsg(null);
         setOtpSent(false);
         setPhotoUrl('');
@@ -83,7 +95,7 @@ export default function ReviewModal({
       }, 0);
       return () => clearTimeout(timer);
     }
-  }, [isOpen, requestGeolocation]);
+  }, [isOpen, initialUserLat, initialUserLng, requestGeolocation]);
 
   if (!isOpen) return null;
 
@@ -141,7 +153,7 @@ export default function ReviewModal({
     setIsUploadingPhoto(false);
   };
 
-  // Calculate distance & 15km eligibility
+  // Calculate distance & 20km eligibility
   const hasProjectCoords = projectLat !== undefined && projectLng !== undefined && projectLat !== 0 && projectLng !== 0;
   const hasUserCoords = userLat !== null && userLng !== null;
 
@@ -187,7 +199,7 @@ export default function ReviewModal({
     setErrorMsg(null);
 
     if (!hasUserCoords) {
-      setErrorMsg('GPS location is required to verify that you are within 15 km of the project site.');
+      setErrorMsg('GPS location is required to verify that you are within 20 km of the project site.');
       return;
     }
 
@@ -259,12 +271,12 @@ export default function ReviewModal({
           </button>
         </div>
 
-        {/* ─── 15km Location Verification Status Banner ──────────────────── */}
+        {/* ─── 20km Location Verification Status Banner ──────────────────── */}
         <div className="mt-3">
           {geoStatus === 'locating' && (
             <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-3 text-xs text-blue-800 flex items-center justify-between gap-2 animate-pulse">
               <div className="flex items-center gap-2">
-                <span>Verifying your GPS proximity to project site (15 km rule)...</span>
+                <span>Verifying your GPS proximity to project site (20 km rule)...</span>
               </div>
             </div>
           )}
@@ -277,11 +289,11 @@ export default function ReviewModal({
                     <div className="font-bold flex items-center gap-1">
                       <span>Proximity Verified ({geoCheck.distanceKm} km away)</span>
                       <span className="bg-emerald-200 text-emerald-800 text-[10px] px-1.5 py-0.5 rounded font-black">
-                        &le; 15 km
+                        &le; 20 km
                       </span>
                     </div>
                     <p className="text-[11px] text-emerald-700 mt-0.5">
-                      You are within the 15 km local zone and eligible to submit a ground rating.
+                      You are within the 20 km local zone and eligible to submit a ground rating.
                     </p>
                   </div>
                 </div>
@@ -297,7 +309,7 @@ export default function ReviewModal({
               <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs text-rose-950 shadow-xs space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 font-bold text-rose-800">
-                    <span>Outside 15 km Rating Zone ({geoCheck.distanceKm} km away)</span>
+                    <span>Outside 20 km Rating Zone ({geoCheck.distanceKm} km away)</span>
                   </div>
                   <button
                     type="button"
@@ -308,7 +320,7 @@ export default function ReviewModal({
                   </button>
                 </div>
                 <p className="text-[11px] text-rose-800 leading-relaxed">
-                  To prevent fraudulent reviews, MapaTunAI strictly limits project ratings to citizens located within <strong>15 km</strong> of the infrastructure site.
+                  To prevent fraudulent reviews, MapaTunAI strictly limits project ratings to citizens located within <strong>20 km</strong> of the infrastructure site.
                 </p>
               </div>
             )
@@ -329,7 +341,7 @@ export default function ReviewModal({
                 </button>
               </div>
               <p className="text-[11px] text-amber-800 leading-relaxed">
-                {geoError || 'Please allow GPS location access in your browser to verify that you are within 15 km of this project.'}
+                {geoError || 'Please allow GPS location access in your browser to verify that you are within 20 km of this project.'}
               </p>
             </div>
           )}
@@ -507,7 +519,7 @@ export default function ReviewModal({
                 onClick={handleSendOtp}
                 disabled={!isEligibleByDistance}
                 className="shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white shadow hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                title={!isEligibleByDistance ? 'Must be within 15 km of project to request OTP' : ''}
+                title={!isEligibleByDistance ? 'Must be within 20 km of project to request OTP' : ''}
               >
                 {otpSent ? 'Resend OTP' : 'Send OTP'}
               </button>
@@ -543,7 +555,7 @@ export default function ReviewModal({
                 : isUploadingPhoto
                 ? 'Uploading Photo...'
                 : !isEligibleByDistance
-                ? 'Location Restricted (> 15 km)'
+                ? 'Location Restricted (> 20 km)'
                 : 'Submit Verified Review'}
             </button>
           </div>

@@ -79,12 +79,12 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    // 2. Validate User GPS Geofence (15km)
+    // 2. Validate User GPS Geofence (20km)
     if (userLat === undefined || userLng === undefined || userLat === null || userLng === null) {
       return Response.json(
         {
           error:
-            'Your GPS location is required to rate this project. Please allow location access to verify you are within 15 km.',
+            'Your GPS location is required to rate this project. Please allow location access to verify you are within 20 km.',
         },
         { status: 400 }
       );

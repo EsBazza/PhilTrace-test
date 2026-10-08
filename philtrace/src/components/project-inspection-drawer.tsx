@@ -45,6 +45,7 @@ interface ProjectDetail {
 interface ProjectInspectionDrawerProps {
   projectId: string | null;
   onClose: () => void;
+  userLocation?: { lat: number; lng: number } | null;
 }
 
 interface ReviewItem {
@@ -61,6 +62,7 @@ interface ReviewItem {
 export default function ProjectInspectionDrawer({
   projectId,
   onClose,
+  userLocation: propUserLocation,
 }: ProjectInspectionDrawerProps) {
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
@@ -69,10 +71,14 @@ export default function ProjectInspectionDrawer({
   const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(propUserLocation ?? null);
 
-  // Request browser location to check 15km rating eligibility
+  // Sync prop user location or request browser location to check 20km rating eligibility
   useEffect(() => {
+    if (propUserLocation) {
+      setUserLocation(propUserLocation);
+      return;
+    }
     if (typeof window !== 'undefined' && 'geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
@@ -80,7 +86,7 @@ export default function ProjectInspectionDrawer({
         { enableHighAccuracy: false, timeout: 8000 }
       );
     }
-  }, []);
+  }, [propUserLocation]);
 
   const [boqData, setBoqData] = useState<any | null>(null);
   const [connections, setConnections] = useState<any[]>([]);
@@ -511,46 +517,58 @@ export default function ProjectInspectionDrawer({
               {/* Citizen Reviews & Whistleblower Feed */}
               <div className="space-y-3 pt-2">
                 {(() => {
+                  const hasUserLoc = Boolean(userLocation && userLocation.lat && userLocation.lng);
                   const geoCheck =
-                    userLocation && project.gpsLat && project.gpsLng
-                      ? isWithinReviewRadius(userLocation.lat, userLocation.lng, project.gpsLat, project.gpsLng, MAX_REVIEW_RADIUS_KM)
+                    hasUserLoc && project.gpsLat && project.gpsLng
+                      ? isWithinReviewRadius(userLocation!.lat, userLocation!.lng, project.gpsLat, project.gpsLng, MAX_REVIEW_RADIUS_KM)
                       : null;
+                  const isEligible = Boolean(hasUserLoc && geoCheck && geoCheck.isWithin);
 
                   return (
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="font-bold text-gray-900">
-                          Citizen Reviews ({reviews.length})
-                        </span>
-                        {geoCheck && (
-                          <span
-                            className={`text-[10px] font-semibold mt-0.5 inline-flex items-center gap-1 ${
-                              geoCheck.isWithin ? 'text-emerald-600' : 'text-amber-700'
-                            }`}
-                          >
-                            <span>{geoCheck.isWithin ? '✓' : '•'}</span>
-                            <span>
-                              {geoCheck.distanceKm} km away{' '}
-                              {geoCheck.isWithin ? '(Within 15 km zone)' : '(Rating restricted to ≤ 15 km)'}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-gray-900">
+                              Citizen Reviews ({reviews.length})
                             </span>
-                          </span>
+                            {isEligible && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                                <span>✓</span>
+                                <span>Verified Local Resident ({geoCheck?.distanceKm} km)</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {isEligible ? (
+                          <button
+                            onClick={() => setIsReviewModalOpen(true)}
+                            className="rounded-lg px-3 py-1.5 text-xs font-bold transition flex items-center gap-1 shadow-sm bg-blue-600 text-white hover:bg-blue-700"
+                          >
+                            + Rate & Review
+                          </button>
+                        ) : (
+                          <button
+                            disabled
+                            className="rounded-lg px-3 py-1.5 text-xs font-semibold bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed opacity-75"
+                            title="Review submission is restricted to residents within 20km of the project site."
+                          >
+                            + Rate & Review
+                          </button>
                         )}
                       </div>
-                      <button
-                        onClick={() => setIsReviewModalOpen(true)}
-                        className={`rounded-lg px-3 py-1.5 text-xs font-bold transition flex items-center gap-1 shadow-xs ${
-                          geoCheck && !geoCheck.isWithin
-                            ? 'bg-amber-50 border border-amber-300 text-amber-800 hover:bg-amber-100'
-                            : 'bg-blue-600 text-white hover:bg-blue-700'
-                        }`}
-                        title={
-                          geoCheck && !geoCheck.isWithin
-                            ? `You are ${geoCheck.distanceKm} km away. Rating is limited to within 15 km.`
-                            : ''
-                        }
-                      >
-                        {geoCheck && !geoCheck.isWithin ? 'Rate (Restricted)' : '+ Rate & Review'}
-                      </button>
+
+                      {!isEligible && (
+                        <div className="rounded-lg bg-amber-50 border border-amber-200/80 px-2.5 py-1.5 text-[11px] text-amber-800 flex items-center gap-1.5">
+                          <span>📍</span>
+                          <span>
+                            {hasUserLoc && geoCheck
+                              ? `You are ${geoCheck.distanceKm} km away. Review submission is restricted to residents within 20km of the project site.`
+                              : 'Review submission is restricted to residents within 20km of the project site.'}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -630,6 +648,8 @@ export default function ProjectInspectionDrawer({
           projectName={project.name}
           projectLat={project.gpsLat}
           projectLng={project.gpsLng}
+          initialUserLat={userLocation?.lat}
+          initialUserLng={userLocation?.lng}
           isOpen={isReviewModalOpen}
           onClose={() => setIsReviewModalOpen(false)}
           onSuccess={() => loadProject(project.id)}

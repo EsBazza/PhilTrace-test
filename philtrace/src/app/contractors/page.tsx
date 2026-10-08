@@ -1,22 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import Image from 'next/image';
-import { useContractorGraph, useContractors } from '@/hooks/use-projects';
+import { useContractors } from '@/hooks/use-projects';
 import { formatCurrency } from '@/lib/format';
-import dynamic from 'next/dynamic';
 
-const SigmaNetwork = dynamic(() => import('@/components/contractors/sigma-network'), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-full w-full items-center justify-center text-slate-400 text-sm">
-      Initializing WebGL Bipartite Graph...
-    </div>
-  ),
-});
-
-interface ContractorNodeData {
+interface ContractorData {
   id: string;
   label: string;
   totalValue: number;
@@ -26,20 +17,28 @@ interface ContractorNodeData {
   terminatedCount: number;
 }
 
-export default function ContractorsPage() {
+function ContractorsContent() {
   const router = useRouter();
-  const { data: graphData, isLoading: isGraphLoading } = useContractorGraph();
-  
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedContractor, setSelectedContractor] = useState<ContractorNodeData | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const initialQuery = searchParams.get('q') || searchParams.get('search') || '';
+
+  const [searchTerm, setSearchTerm] = useState(initialQuery);
+  const [selectedContractor, setSelectedContractor] = useState<ContractorData | null>(null);
   const [sortBy, setSortBy] = useState<'totalValuePHP' | 'totalContracts' | 'overdueCount' | 'avgProgress'>('totalValuePHP');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [filterRisk, setFilterRisk] = useState<'all' | 'clean' | 'overdue' | 'highrisk'>('all');
-  const [activeView, setActiveView] = useState<'cards' | 'network'>('cards');
   const [page, setPage] = useState(1);
 
-  // Reset page when filter or search changes
+  // Sync searchTerm if URL search query changes
+  useEffect(() => {
+    const q = searchParams.get('q') || searchParams.get('search') || '';
+    if (q) {
+      setSearchTerm(q);
+      setPage(1);
+    }
+  }, [searchParams]);
+
+  // Reset page when filter changes
   const handleFilterChange = (f: 'all' | 'clean' | 'overdue' | 'highrisk') => {
     setFilterRisk(f);
     setPage(1);
@@ -56,10 +55,9 @@ export default function ContractorsPage() {
   });
 
   const contractorsList = contractorsData?.contractors || [];
-
   const totalPages = contractorsData?.pagination?.totalPages || 1;
 
-  // Currently inspected contractor (default to top contractor if none clicked)
+  // Currently inspected contractor (default to top contractor if none selected)
   const activeContractor = selectedContractor || (contractorsList.length > 0 ? {
     id: contractorsList[0].id,
     label: contractorsList[0].name,
@@ -70,21 +68,21 @@ export default function ContractorsPage() {
     terminatedCount: contractorsList[0].terminatedCount,
   } : null);
 
-  const summaryStats = { clean: 0, overdue: 0, terminated: 0 };
-  if (graphData?.nodes) {
-    graphData.nodes.forEach((n: any) => {
-      const d = n.data;
-      if (!d || d.terminatedCount === undefined) return; // skip non-contractor nodes
-      if (d.terminatedCount > 0) summaryStats.terminated++;
-      else if (d.overdueCount > 0) summaryStats.overdue++;
-      else summaryStats.clean++;
-    });
-  }
+  // Derive summary statistics directly from contractors list
+  const summaryStats = contractorsList.reduce(
+    (acc, c) => {
+      if ((c.terminatedCount || 0) > 0) acc.terminated++;
+      else if ((c.overdueCount || 0) > 0) acc.overdue++;
+      else acc.clean++;
+      return acc;
+    },
+    { clean: 0, overdue: 0, terminated: 0 }
+  );
 
   return (
     <div className="w-full min-h-screen bg-[#f4f6fb] text-gray-900 p-0 m-0 overflow-x-hidden font-sans">
       
-      {/* ── Top Header Hero Banner (Klatschboard Premium Style) ──────── */}
+      {/* ── Top Header Hero Banner ──────── */}
       <div className="relative w-full bg-[#011438] text-white px-6 sm:px-12 lg:px-16 pt-10 pb-16 rounded-b-[48px] shadow-2xl border-b border-[#01367d]/40">
         
         {/* Layer 0: Dual Asset Overlay */}
@@ -112,7 +110,7 @@ export default function ContractorsPage() {
               <span className="text-[#ffb241]">AI</span> Contractors
             </h1>
             <p className="text-sm sm:text-base text-white/85 max-w-2xl font-medium leading-relaxed">
-              Explore joint-venture co-occurrences, historical project delays, and dominant contractors across 248,000+ public works contracts.
+              Explore contract awards, historical project delays, and dominant contractors across 248,000+ public works contracts.
             </p>
           </div>
 
@@ -164,40 +162,16 @@ export default function ContractorsPage() {
               </button>
             </div>
 
-            {/* View Switcher Toggle Pill */}
-            <div className="flex items-center bg-white/10 p-1.5 rounded-full border border-white/20 backdrop-blur-md text-xs font-bold shadow-lg">
-              <button
-                onClick={() => setActiveView('cards')}
-                className={`px-4 py-2 rounded-full transition-all duration-200 ${
-                  activeView === 'cards'
-                    ? 'bg-[#ffb241] text-[#01367d] font-black shadow-md scale-105'
-                    : 'text-white/80 hover:text-white'
-                }`}
-              >
-                List View
-              </button>
-              <button
-                onClick={() => setActiveView('network')}
-                className={`px-4 py-2 rounded-full transition-all duration-200 ${
-                  activeView === 'network'
-                    ? 'bg-[#ffb241] text-[#01367d] font-black shadow-md scale-105'
-                    : 'text-white/80 hover:text-white'
-                }`}
-              >
-                Network View
-              </button>
-            </div>
-
-            {/* Top Right Search Pill CTA */}
-            <button
-              onClick={() => router.push('/search')}
+            {/* Top Right Explore Map CTA */}
+            <Link
+              href="/map"
               className="inline-flex items-center gap-2 rounded-full bg-[#10b981] px-6 py-2.5 text-xs sm:text-sm font-black text-white shadow-xl hover:bg-emerald-400 hover:scale-105 transition-all duration-200"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
               </svg>
-              Search Database
-            </button>
+              Explore Map
+            </Link>
           </div>
         </div>
       </div>
@@ -249,211 +223,176 @@ export default function ContractorsPage() {
               </div>
             </div>
 
-            {/* List View vs Network View */}
-            {activeView === 'network' ? (
-              /* Network Graph Visualizer Container */
-              <div className="rounded-3xl border border-[#01367d]/20 bg-[#011438] p-6 shadow-2xl text-white space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-white/15">
-                  <div>
-                    <h2 className="text-xl font-black text-white">Bipartite Network Graph</h2>
-                    <p className="text-xs text-white/70">Click a project (green/red) to view details, or contractor (blue) to highlight.</p>
-                  </div>
-                </div>
-
-                <div className="relative h-[600px] w-full rounded-2xl bg-black/60 border border-white/15 overflow-hidden shadow-inner">
-                  {isGraphLoading ? (
-                    <div className="flex h-full items-center justify-center text-white/70">
-                      <div className="flex flex-col items-center gap-2">
-                        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#ffb241] border-t-transparent" />
-                        <span className="text-xs font-semibold">Generating bipartite network...</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="h-full w-full">
-                      <SigmaNetwork 
-                        graphData={graphData} 
-                        onProjectClick={(id) => router.push(`/projects/${encodeURIComponent(id)}`)}
-                        onContractorClick={(data) => setSelectedContractor(data)}
-                      />
-                    </div>
-                  )}
-                </div>
-
+            {/* List Cards Stream */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-black text-[#01367d] tracking-tight">
+                  Contractor Leaderboard ({contractorsList.length} Entities)
+                </h2>
               </div>
-            ) : (
-              /* Klatschboard Style List Cards Stream */
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-black text-[#01367d] tracking-tight">
-                    Contractor Leaderboard ({contractorsList.length} Entities)
-                  </h2>
-                </div>
 
-                {isTableLoading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <div key={i} className="animate-pulse rounded-3xl bg-white p-7 shadow-sm border border-gray-100 space-y-3">
-                      <div className="h-5 bg-gray-200 rounded w-1/3" />
-                      <div className="h-4 bg-gray-200 rounded w-2/3" />
-                    </div>
-                  ))
-                ) : contractorsList.length > 0 ? (
-                  contractorsList.map((c, idx) => {
-                    const rank = (page - 1) * 12 + idx + 1;
-                    const isTop3 = rank <= 3;
-                    const isHighRisk = c.overdueCount > 3 || c.terminatedCount > 0;
-                    const isPending = c.overdueCount > 0 && c.overdueCount <= 3;
-                    const isSelected = activeContractor?.id === c.id || activeContractor?.label === c.name;
-                    const progressPct = Math.min(Math.max(c.avgProgress || 0, 0), 100);
+              {isTableLoading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="animate-pulse rounded-3xl bg-white p-7 shadow-sm border border-gray-100 space-y-3">
+                    <div className="h-5 bg-gray-200 rounded w-1/3" />
+                    <div className="h-4 bg-gray-200 rounded w-2/3" />
+                  </div>
+                ))
+              ) : contractorsList.length > 0 ? (
+                contractorsList.map((c, idx) => {
+                  const rank = (page - 1) * 12 + idx + 1;
+                  const isTop3 = rank <= 3;
+                  const isHighRisk = c.overdueCount > 3 || c.terminatedCount > 0;
+                  const isPending = c.overdueCount > 0 && c.overdueCount <= 3;
+                  const isSelected = activeContractor?.id === c.id || activeContractor?.label === c.name;
+                  const progressPct = Math.min(Math.max(c.avgProgress || 0, 0), 100);
 
-                    // Status Bar Accent Color
-                    const accentBg = isHighRisk 
-                      ? 'bg-[#a80101]' 
-                      : isPending 
-                      ? 'bg-[#ffb241]' 
-                      : 'bg-blue-600';
+                  // Status Bar Accent Color
+                  const accentBg = isHighRisk 
+                    ? 'bg-[#a80101]' 
+                    : isPending 
+                    ? 'bg-[#ffb241]' 
+                    : 'bg-blue-600';
 
-                    return (
-                      <div
-                        key={c.id}
-                        onClick={() => setSelectedContractor({
-                          id: c.id,
-                          label: c.name,
-                          totalValue: c.totalValuePHP,
-                          totalContracts: c.totalContracts,
-                          avgProgress: c.avgProgress,
-                          overdueCount: c.overdueCount,
-                          terminatedCount: c.terminatedCount,
-                        })}
-                        className={`group relative overflow-hidden rounded-3xl bg-white p-5 sm:p-6 shadow-sm hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 border cursor-pointer ${
-                          isSelected ? 'border-[#01367d] ring-2 ring-[#01367d]/20 bg-blue-50/20 shadow-md' : 'border-gray-200/80 hover:border-[#01367d]/40'
-                        }`}
-                      >
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5">
-                          
-                          {/* Internal Status Accent Bar + Col 1: Award Value & Rank Box */}
-                          <div className="flex items-center gap-4 shrink-0">
-                            {/* Sleek rounded status accent bar */}
-                            <div className={`w-2 h-16 rounded-full shrink-0 ${accentBg} shadow-sm`} />
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => setSelectedContractor({
+                        id: c.id,
+                        label: c.name,
+                        totalValue: c.totalValuePHP,
+                        totalContracts: c.totalContracts,
+                        avgProgress: c.avgProgress,
+                        overdueCount: c.overdueCount,
+                        terminatedCount: c.terminatedCount,
+                      })}
+                      className={`group relative overflow-hidden rounded-3xl bg-white p-5 sm:p-6 shadow-sm hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 border cursor-pointer ${
+                        isSelected ? 'border-[#01367d] ring-2 ring-[#01367d]/20 bg-blue-50/20 shadow-md' : 'border-gray-200/80 hover:border-[#01367d]/40'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5">
+                        
+                        {/* Internal Status Accent Bar + Col 1: Award Value & Rank Box */}
+                        <div className="flex items-center gap-4 shrink-0">
+                          <div className={`w-2 h-16 rounded-full shrink-0 ${accentBg} shadow-sm`} />
 
-                            {/* Rank & Award Value Card Box */}
-                            <div className="bg-slate-50/90 border border-slate-100 rounded-2xl p-4 sm:w-48 text-left shadow-xs">
-                              <div className="flex items-center gap-2 mb-1">
-                                {isTop3 ? (
-                                  <span className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-[#ffb241] to-amber-400 text-[#01367d] font-black text-xs px-3 py-0.5 shadow-xs">
-                                    Rank #{rank}
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center justify-center rounded-full bg-[#01367d]/10 text-[#01367d] font-black text-xs px-3 py-0.5">
-                                    Rank #{rank}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-xl sm:text-2xl font-black text-[#01367d] tracking-tight">
-                                {formatCurrency(c.totalValuePHP)}
-                              </div>
-                              <div className="text-xs font-bold text-gray-500 mt-0.5">
-                                {c.totalContracts.toLocaleString()} Award Contracts
-                              </div>
+                          <div className="bg-slate-50/90 border border-slate-100 rounded-2xl p-4 sm:w-48 text-left shadow-xs">
+                            <div className="flex items-center gap-2 mb-1">
+                              {isTop3 ? (
+                                <span className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-[#ffb241] to-amber-400 text-[#01367d] font-black text-xs px-3 py-0.5 shadow-xs">
+                                  Rank #{rank}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center justify-center rounded-full bg-[#01367d]/10 text-[#01367d] font-black text-xs px-3 py-0.5">
+                                  Rank #{rank}
+                                </span>
+                              )}
                             </div>
-                          </div>
-
-                          {/* Col 2: Avatar & Contractor Entity Name */}
-                          <div className="flex items-start sm:items-center gap-4 flex-1 min-w-0">
-                            <div className="h-14 w-14 shrink-0 rounded-2xl bg-gradient-to-br from-[#01367d] to-[#011438] text-white font-black flex items-center justify-center text-lg shadow-md border-2 border-white">
-                              {c.name.substring(0, 2).toUpperCase()}
+                            <div className="text-xl sm:text-2xl font-black text-[#01367d] tracking-tight">
+                              {formatCurrency(c.totalValuePHP)}
                             </div>
-                            <div className="min-w-0 flex-1 space-y-1.5">
-                              <h3 className="text-base sm:text-lg lg:text-xl font-black text-gray-900 group-hover:text-[#01367d] transition line-clamp-2 leading-snug">
-                                {c.name}
-                              </h3>
-
-                              {/* Progress bar + percentage */}
-                              <div className="space-y-1 max-w-sm pt-0.5">
-                                <div className="flex items-center justify-between text-xs font-extrabold">
-                                  <span className="text-gray-500">Avg Completion Rate</span>
-                                  <span className="text-blue-600 font-black">{progressPct.toFixed(1)}%</span>
-                                </div>
-                                <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
-                                  <div
-                                    className="h-2 rounded-full transition-all duration-500"
-                                    style={{
-                                      width: `${progressPct}%`,
-                                      backgroundColor: progressPct >= 90 ? '#10b981' : progressPct >= 50 ? '#3b82f6' : '#f59e0b',
-                                    }}
-                                  />
-                                </div>
-                              </div>
+                            <div className="text-xs font-bold text-gray-500 mt-0.5">
+                              {c.totalContracts.toLocaleString()} Award Contracts
                             </div>
-                          </div>
-
-                          {/* Col 3: Status Badge Pill & Audit Button */}
-                          <div className="shrink-0 flex items-center justify-between sm:justify-end gap-3.5 pt-2 sm:pt-0">
-                            {c.overdueCount > 0 ? (
-                              <span className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs sm:text-sm font-black shadow-xs ${
-                                isHighRisk 
-                                  ? 'bg-red-50 text-[#a80101] border border-red-200/80' 
-                                  : 'bg-amber-50 text-[#b45309] border border-[#ffb241]/60'
-                              }`}>
-                                <span className={`h-2.5 w-2.5 rounded-full animate-pulse ${isHighRisk ? 'bg-[#a80101]' : 'bg-[#ffb241]'}`} />
-                                {c.overdueCount} Overdue
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200/80 px-4 py-2 text-xs sm:text-sm font-black shadow-xs">
-                                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                                Confirmed Clean
-                              </span>
-                            )}
-
-                            {/* View Projects CTA Pill */}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                router.push(`/search?q=${encodeURIComponent(c.name)}`);
-                              }}
-                              className="rounded-full bg-[#01367d] px-6 py-2.5 text-xs sm:text-sm font-black text-white shadow-md hover:bg-[#ffb241] hover:text-[#01367d] hover:scale-105 transition-all duration-200 whitespace-nowrap"
-                            >
-                              View Projects &rarr;
-                            </button>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="rounded-3xl bg-white p-12 text-center text-gray-500 font-semibold shadow-sm border border-gray-100">
-                    No contractors found matching &ldquo;{searchTerm}&rdquo;.
-                  </div>
-                )}
 
-                {/* Pagination */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-between border-t border-gray-200 pt-6">
-                    <p className="text-xs sm:text-sm text-gray-600 font-semibold">
-                      Page <span className="font-extrabold text-[#01367d]">{page}</span> of <span className="font-extrabold text-[#01367d]">{totalPages}</span>
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <button
-                        disabled={page <= 1}
-                        onClick={() => setPage((p) => Math.max(p - 1, 1))}
-                        className="rounded-full border border-gray-300 bg-white px-5 py-2 text-xs sm:text-sm font-bold text-[#01367d] hover:bg-gray-50 disabled:opacity-50 transition shadow-sm"
-                      >
-                        &larr; Previous
-                      </button>
-                      <button
-                        disabled={page >= totalPages}
-                        onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
-                        className="rounded-full border border-gray-300 bg-white px-5 py-2 text-xs sm:text-sm font-bold text-[#01367d] hover:bg-gray-50 disabled:opacity-50 transition shadow-sm"
-                      >
-                        Next &rarr;
-                      </button>
+                        {/* Col 2: Avatar & Contractor Entity Name */}
+                        <div className="flex items-start sm:items-center gap-4 flex-1 min-w-0">
+                          <div className="h-14 w-14 shrink-0 rounded-2xl bg-gradient-to-br from-[#01367d] to-[#011438] text-white font-black flex items-center justify-center text-lg shadow-md border-2 border-white">
+                            {c.name.substring(0, 2).toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1 space-y-1.5">
+                            <h3 className="text-base sm:text-lg lg:text-xl font-black text-gray-900 group-hover:text-[#01367d] transition line-clamp-2 leading-snug">
+                              {c.name}
+                            </h3>
+
+                            {/* Progress bar + percentage */}
+                            <div className="space-y-1 max-w-sm pt-0.5">
+                              <div className="flex items-center justify-between text-xs font-extrabold">
+                                <span className="text-gray-500">Avg Completion Rate</span>
+                                <span className="text-blue-600 font-black">{progressPct.toFixed(1)}%</span>
+                              </div>
+                              <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
+                                <div
+                                  className="h-2 rounded-full transition-all duration-500"
+                                  style={{
+                                    width: `${progressPct}%`,
+                                    backgroundColor: progressPct >= 90 ? '#10b981' : progressPct >= 50 ? '#3b82f6' : '#f59e0b',
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Col 3: Status Badge Pill & View Projects Button */}
+                        <div className="shrink-0 flex items-center justify-between sm:justify-end gap-3.5 pt-2 sm:pt-0">
+                          {c.overdueCount > 0 ? (
+                            <span className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs sm:text-sm font-black shadow-xs ${
+                              isHighRisk 
+                                ? 'bg-red-50 text-[#a80101] border border-red-200/80' 
+                                : 'bg-amber-50 text-[#b45309] border border-[#ffb241]/60'
+                            }`}>
+                              <span className={`h-2.5 w-2.5 rounded-full animate-pulse ${isHighRisk ? 'bg-[#a80101]' : 'bg-[#ffb241]'}`} />
+                              {c.overdueCount} Overdue
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200/80 px-4 py-2 text-xs sm:text-sm font-black shadow-xs">
+                              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                              Confirmed Clean
+                            </span>
+                          )}
+
+                          {/* View Projects CTA Pill -> /map?contractor=... */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(`/map?contractor=${encodeURIComponent(c.name)}`);
+                            }}
+                            className="rounded-full bg-[#01367d] px-6 py-2.5 text-xs sm:text-sm font-black text-white shadow-md hover:bg-[#ffb241] hover:text-[#01367d] hover:scale-105 transition-all duration-200 whitespace-nowrap"
+                          >
+                            View Projects &rarr;
+                          </button>
+                        </div>
+                      </div>
                     </div>
+                  );
+                })
+              ) : (
+                <div className="rounded-3xl bg-white p-12 text-center text-gray-500 font-semibold shadow-sm border border-gray-100">
+                  No contractors found matching &ldquo;{searchTerm}&rdquo;.
+                </div>
+              )}
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t border-gray-200 pt-6">
+                  <p className="text-xs sm:text-sm text-gray-600 font-semibold">
+                    Page <span className="font-extrabold text-[#01367d]">{page}</span> of <span className="font-extrabold text-[#01367d]">{totalPages}</span>
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      disabled={page <= 1}
+                      onClick={() => setPage((p) => Math.max(p - 1, 1))}
+                      className="rounded-full border border-gray-300 bg-white px-5 py-2 text-xs sm:text-sm font-bold text-[#01367d] hover:bg-gray-50 disabled:opacity-50 transition shadow-sm"
+                    >
+                      &larr; Previous
+                    </button>
+                    <button
+                      disabled={page >= totalPages}
+                      onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
+                      className="rounded-full border border-gray-300 bg-white px-5 py-2 text-xs sm:text-sm font-bold text-[#01367d] hover:bg-gray-50 disabled:opacity-50 transition shadow-sm"
+                    >
+                      Next &rarr;
+                    </button>
                   </div>
-                )}
-              </div>
-            )}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* ── RIGHT COLUMN: Klatschboard Sticky Details Panel (4 Columns) ─ */}
+          {/* ── RIGHT COLUMN: Sticky Details Inspector Panel (4 Columns) ─ */}
           <div className="lg:col-span-4 sticky top-24 space-y-6">
             
             {/* Top Metrics Cards Header */}
@@ -461,10 +400,10 @@ export default function ContractorsPage() {
               
               <div className="flex items-center justify-between border-b border-gray-100 pb-4">
                 <span className="text-xs font-black uppercase tracking-wider text-gray-400">National Registry Summary</span>
-                <span className="text-xs font-black text-[#01367d]">2026 Overview</span>
+                <span className="text-xs font-black text-[#01367d]">Overview</span>
               </div>
 
-              {/* 3 Metric Badges Row (Klatschboard Style) */}
+              {/* 3 Metric Badges Row */}
               <div className="grid grid-cols-3 gap-3 text-center">
                 
                 {/* Clean Badge */}
@@ -538,9 +477,9 @@ export default function ContractorsPage() {
                     </div>
                   </div>
 
-                  {/* Full Projects Button */}
+                  {/* Full Projects Button -> /map?contractor=... */}
                   <button
-                    onClick={() => router.push(`/search?q=${encodeURIComponent(activeContractor.label)}`)}
+                    onClick={() => router.push(`/map?contractor=${encodeURIComponent(activeContractor.label)}`)}
                     className="w-full mt-4 rounded-full bg-[#01367d] py-3.5 text-center text-xs sm:text-sm font-black text-white shadow-xl hover:bg-[#ffb241] hover:text-[#01367d] hover:scale-105 transition-all duration-200"
                   >
                     View All Won Projects &rarr;
@@ -557,7 +496,7 @@ export default function ContractorsPage() {
         </div>
       </div>
 
-      {/* Full-Width Footer with #eeeeee Background & MAPATUNAI.png Asset */}
+      {/* Full-Width Footer */}
       <footer className="w-full mt-16 py-16 px-6 md:px-16 bg-[#eeeeee] text-[#01367d] border-t border-[#01367d]/15 space-y-8 text-center shadow-inner">
         <div className="max-w-3xl mx-auto space-y-4">
           <div className="flex items-center justify-center">
@@ -575,11 +514,9 @@ export default function ContractorsPage() {
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-6 text-sm font-bold text-[#01367d]">
-          <a href="/map" className="hover:text-[#ffb241] transition-colors">National Map</a>
+          <Link href="/map" className="hover:text-[#ffb241] transition-colors">Interactive Map</Link>
           <span>•</span>
-          <a href="/contractors" className="hover:text-[#ffb241] transition-colors">Contractor Registry</a>
-          <span>•</span>
-          <a href="/nearby" className="hover:text-[#ffb241] transition-colors">Near Me Scanner</a>
+          <Link href="/contractors" className="hover:text-[#ffb241] transition-colors">Contractor Registry</Link>
         </div>
 
         <p className="text-xs text-[#01367d]/60 font-semibold">
@@ -587,5 +524,13 @@ export default function ContractorsPage() {
         </p>
       </footer>
     </div>
+  );
+}
+
+export default function ContractorsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#f4f6fb] flex items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-4 border-[#ffb241] border-t-transparent" /></div>}>
+      <ContractorsContent />
+    </Suspense>
   );
 }

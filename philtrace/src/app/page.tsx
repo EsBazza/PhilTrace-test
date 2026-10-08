@@ -342,11 +342,9 @@ export default function AboutAndHomePage() {
           MapaTunAI was engineered by UA HOW 2 as a 100% open, public-interest civic technology tool for Philippine governance. Our goal is to transform public data into actionable community power, holding contractors and public works agencies accountable to the Filipino people.
         </p>
         <div className="pt-2 flex justify-center gap-4 text-sm font-extrabold text-[#01367d]">
-          <Link href="/map" className="hover:text-[#ffb241] transition-colors">Open Map</Link>
+          <Link href="/map" className="hover:text-[#ffb241] transition-colors">Interactive Map</Link>
           <span>•</span>
-          <Link href="/contractors" className="hover:text-[#ffb241] transition-colors">Contractor Network</Link>
-          <span>•</span>
-          <Link href="/nearby" className="hover:text-[#ffb241] transition-colors">Near Me Scanner</Link>
+          <Link href="/contractors" className="hover:text-[#ffb241] transition-colors">Contractor Registry</Link>
         </div>
       </section>
 
@@ -368,11 +366,9 @@ export default function AboutAndHomePage() {
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-6 text-sm font-bold text-[#01367d]">
-          <Link href="/map" className="hover:text-[#ffb241] transition-colors">National Map</Link>
+          <Link href="/map" className="hover:text-[#ffb241] transition-colors">Interactive Map</Link>
           <span>•</span>
           <Link href="/contractors" className="hover:text-[#ffb241] transition-colors">Contractor Registry</Link>
-          <span>•</span>
-          <Link href="/nearby" className="hover:text-[#ffb241] transition-colors">Near Me Scanner</Link>
         </div>
 
         <p className="text-xs text-[#01367d]/60 font-semibold">

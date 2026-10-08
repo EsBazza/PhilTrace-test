@@ -36,17 +36,20 @@ interface DrillDownPanelProps {
   province: string;
   municipality: string;
   barangay: string;
-  filterAnomaly: string;
+  filterAnomaly?: string;
   setRegion: (v: string) => void;
   setProvince: (v: string) => void;
   setMunicipality: (v: string, file?: string) => void;
   setBarangay: (v: string, bounds?: [[number, number], [number, number]]) => void;
-  setFilterAnomaly: (v: string) => void;
+  setFilterAnomaly?: (v: string) => void;
   navigateTo: (level: 'root' | 'region' | 'province' | 'municipality') => void;
   basemap: string;
   setBasemap: (v: 'satellite' | 'dark' | 'streets') => void;
   getProvinces: (regionName: string) => ProvinceItem[];
   getCities: (regionName: string, provinceName: string) => CityItem[];
+  isNearMeActive?: boolean;
+  isLocating?: boolean;
+  onNearMeToggle?: () => void;
 }
 
 export default function DrillDownPanel({
@@ -69,6 +72,9 @@ export default function DrillDownPanel({
   setBasemap,
   getProvinces,
   getCities,
+  isNearMeActive = false,
+  isLocating = false,
+  onNearMeToggle,
 }: DrillDownPanelProps) {
   const currentProvinces = useMemo(() => getProvinces(region), [region, getProvinces]);
   const currentCities = useMemo(() => getCities(region, province), [region, province, getCities]);
@@ -109,13 +115,6 @@ export default function DrillDownPanel({
     if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
     return n.toLocaleString();
   };
-
-  const RISK_FILTERS = [
-    { value: 'overdue', label: '🔴 Overdue' },
-    { value: 'overpaid', label: '🟡 Overpaid' },
-    { value: 'active', label: '🔵 Active' },
-    { value: 'completed', label: '🟢 Completed' },
-  ];
 
   return (
     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 w-11/12 max-w-5xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-3 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-2xl flex flex-col gap-3 text-xs">
@@ -254,31 +253,33 @@ export default function DrillDownPanel({
           )}
         </div>
 
-        {/* Quick Risk Filters */}
+        {/* Near Me Button (replaces risk filters) */}
         <div className="flex items-center gap-1.5 border-l border-gray-300 dark:border-slate-600 pl-3">
           <button
-            onClick={() => setFilterAnomaly('All')}
-            className={`px-2 py-1 rounded-md font-bold transition ${
-              filterAnomaly === 'All'
-                ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 shadow'
-                : 'bg-white/50 text-slate-600 hover:bg-white dark:bg-slate-800/50 dark:text-slate-300'
+            type="button"
+            onClick={onNearMeToggle}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full font-bold text-xs transition shadow-sm ${
+              isNearMeActive
+                ? 'bg-blue-600 text-white shadow-blue-500/20 ring-2 ring-blue-400 ring-offset-1 dark:ring-offset-slate-900'
+                : 'bg-white/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700'
             }`}
+            title="Locate projects within 20km of your GPS position"
           >
-            All
+            {isLocating ? (
+              <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            ) : isNearMeActive ? (
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-200 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
+              </span>
+            ) : (
+              <span>📍</span>
+            )}
+            <span>Near Me</span>
+            {isNearMeActive && (
+              <span className="text-[10px] bg-blue-700/90 px-1.5 py-0.5 rounded-full font-semibold">20km</span>
+            )}
           </button>
-          {RISK_FILTERS.map((f) => (
-            <button
-              key={f.value}
-              onClick={() => setFilterAnomaly(f.value)}
-              className={`px-2 py-1 rounded-md font-bold transition border ${
-                filterAnomaly === f.value
-                  ? 'border-transparent bg-white dark:bg-slate-700 shadow-sm ring-1 ring-slate-400'
-                  : 'border-transparent bg-white/40 dark:bg-slate-800/40 text-slate-600 dark:text-slate-300 hover:bg-white/80'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
         </div>
       </div>
     </div>

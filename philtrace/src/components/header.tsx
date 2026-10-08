@@ -19,7 +19,7 @@ export function Header() {
           />
         </Link>
 
-        {/* Middle: Navigation Links */}
+        {/* Middle: Navigation Links (Exactly 3 links: Home, Interactive Map, Contractors) */}
         <nav className="hidden lg:flex items-center gap-8 text-sm font-bold text-[#01367d]">
           <Link href="/" className="hover:text-[#ffb241] transition-colors whitespace-nowrap">
             Home
@@ -27,13 +27,9 @@ export function Header() {
           <Link href="/map" className="hover:text-[#ffb241] transition-colors whitespace-nowrap">
             Interactive Map
           </Link>
-          <Link href="/nearby" className="hover:text-[#ffb241] transition-colors whitespace-nowrap">
-            Near Me
-          </Link>
           <Link href="/contractors" className="hover:text-[#ffb241] transition-colors whitespace-nowrap">
             Contractors
           </Link>
-
         </nav>
 
         {/* Right: Search Input */}

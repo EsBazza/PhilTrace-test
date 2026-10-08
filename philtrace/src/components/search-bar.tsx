@@ -63,7 +63,7 @@ export function SearchBar() {
       e.preventDefault();
       setIsOpen(false);
       if (query.trim()) {
-        router.push(`/search?q=${encodeURIComponent(query.trim())}`);
+        router.push(`/contractors?q=${encodeURIComponent(query.trim())}`);
       }
     },
     [query, router]

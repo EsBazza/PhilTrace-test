@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { formatCurrency } from '@/lib/format';
+import { createGeoJSONCircle } from '@/lib/geo';
 import DrillDownPanel from './components/DrillDownPanel';
 import ProjectSidebar from './components/ProjectSidebar';
+import ProjectInspectionDrawer from '@/components/project-inspection-drawer';
 import { useMapInstance } from './hooks/useMapInstance';
 import { useLocationHierarchy } from './hooks/useLocationHierarchy';
 import { useDrillDown } from './hooks/useDrillDown';
@@ -14,22 +16,27 @@ import { useDrillDown } from './hooks/useDrillDown';
 // ─── Main Map Content ───────────────────────────────────────
 function MapContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
   // Basemap state
   const [basemap, setBasemap] = useState<'satellite' | 'dark' | 'streets'>('satellite');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
+  // Near Me (20km) state
+  const [isNearMeActive, setIsNearMeActive] = useState<boolean>(false);
+  const [isLocating, setIsLocating] = useState<boolean>(false);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const isNearMeActiveRef = useRef<boolean>(false);
+  isNearMeActiveRef.current = isNearMeActive;
+
+  // Cached nationwide initial clusters
+  const nationwideClustersRef = useRef<any>(null);
+
   // Core hooks
   const { mapRef, isMapLoaded, currentZoom, flyTo, fitBounds } = useMapInstance(mapContainerRef, basemap);
   const { sortedRegions, centroids, getProvinces, getCities } = useLocationHierarchy();
 
   const drillDown = useDrillDown(centroids, flyTo, fitBounds);
-
-  // Detailed boundary layers for deep zoom
-  const [municitiesGeoJson, setMunicitiesGeoJson] = useState<any>(null);
-  const [barangaysGeoJson, setBarangaysGeoJson] = useState<any>(null);
 
   // Sidebar projects
   const [sidebarProjects, setSidebarProjects] = useState<any[]>([]);
@@ -49,10 +56,22 @@ function MapContent() {
     const p = searchParams.get('province');
     const m = searchParams.get('city') || searchParams.get('municipality');
     const projId = searchParams.get('project') || searchParams.get('projectId');
+    const contractor = searchParams.get('contractor') || searchParams.get('q');
     if (r) drillDown.setRegion(r);
     if (p) drillDown.setProvince(p);
     if (m) drillDown.setMunicipality(m);
     if (projId) setSelectedProjectId(projId);
+    else if (contractor) {
+      fetch(`/api/projects?q=${encodeURIComponent(contractor)}&limit=1`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          const firstProj = data?.projects?.[0];
+          if (firstProj?.id) {
+            setSelectedProjectId(firstProj.id);
+          }
+        })
+        .catch(console.error);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
@@ -70,21 +89,7 @@ function MapContent() {
       .catch(console.error);
   }, [selectedProjectId, isMapLoaded, mapRef, flyTo]);
 
-  // ─── Load municipality borders on-demand when drilling into a province ───
-  useEffect(() => {
-    if (!drillDown.province) {
-      setMunicitiesGeoJson(null);
-      return;
-    }
-    if (!municitiesGeoJson) {
-      fetch('/geo/municities.json')
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => d && setMunicitiesGeoJson(d))
-        .catch(console.error);
-    }
-  }, [drillDown.province]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Unregister any stale / broken service workers causing Cache.put errors ───
+  // ─── Unregister any stale / broken service workers ───
   useEffect(() => {
     if (typeof window !== 'undefined') {
       if ('serviceWorker' in navigator) {
@@ -92,24 +97,53 @@ function MapContent() {
           for (const reg of registrations) reg.unregister();
         }).catch(() => {});
       }
-      if ('caches' in window) {
-        window.caches.keys().then((keys) => {
-          for (const key of keys) window.caches.delete(key);
-        }).catch(() => {});
-      }
     }
   }, []);
 
-  // ─── Render clusters directly from Server Spatial Supercluster (248,220 projects) ──
+  // ─── Render clusters (Tiered High-Speed Cluster Loading) ─────────────────
   const renderClusters = useCallback(async (customBounds?: [[number, number], [number, number]], customZoom?: number) => {
     const map = mapRef.current;
     if (!map) return;
 
-    let sw_lat: number, sw_lng: number, ne_lat: number, ne_lng: number, zoom: number;
+    if (isNearMeActiveRef.current) return;
+
+    const currentMapZoom = map.getZoom ? map.getZoom() : 6;
+    const zoom = customZoom !== undefined ? customZoom : Math.floor(currentMapZoom);
+    const isDrilledDown = Boolean(drillDown.province || drillDown.municipality || drillDown.barangay);
+
+    // Tier 1: National view (zoom < 9 and not drilled down) -> load nationwide initial clusters (~86 KB)
+    if (zoom < 9 && !isDrilledDown) {
+      const applyNationwide = (data: any) => {
+        setTotalPoints(248220);
+        const source = map.getSource(clusterSourceRef.current) as mapboxgl.GeoJSONSource | undefined;
+        if (source) {
+          source.setData(data);
+        }
+      };
+
+      if (nationwideClustersRef.current) {
+        applyNationwide(nationwideClustersRef.current);
+        return;
+      }
+
+      try {
+        const res = await fetch('/geo/nationwide_initial_clusters.json');
+        if (res.ok) {
+          const data = await res.json();
+          nationwideClustersRef.current = data;
+          applyNationwide(data);
+        }
+      } catch (err) {
+        console.error('Failed to load nationwide initial clusters:', err);
+      }
+      return;
+    }
+
+    // Tier 2: Zoomed in (zoom >= 9) or drilled down -> query /api/map/spatial
+    let sw_lat: number, sw_lng: number, ne_lat: number, ne_lng: number;
 
     if (customBounds && customBounds.length === 2) {
       [[sw_lng, sw_lat], [ne_lng, ne_lat]] = customBounds;
-      zoom = customZoom !== undefined ? customZoom : Math.floor(map.getZoom());
     } else {
       const bounds = map.getBounds();
       if (!bounds) return;
@@ -117,7 +151,6 @@ function MapContent() {
       sw_lng = bounds.getWest();
       ne_lat = bounds.getNorth();
       ne_lng = bounds.getEast();
-      zoom = Math.floor(map.getZoom());
     }
 
     const params = new URLSearchParams({
@@ -127,6 +160,9 @@ function MapContent() {
       ne_lng: ne_lng.toFixed(5),
       zoom: zoom.toString(),
     });
+
+    if (drillDown.region) params.set('region', drillDown.region);
+    if (drillDown.province) params.set('province', drillDown.province);
 
     const reqId = ++requestSeqRef.current;
 
@@ -155,13 +191,138 @@ function MapContent() {
     } catch (err: any) {
       console.error('Error fetching server spatial clusters:', err);
     }
-  }, [mapRef]);
+  }, [mapRef, drillDown.province, drillDown.municipality, drillDown.barangay, drillDown.region]);
 
-  // ─── Trigger render from PostgreSQL when drill-down or anomaly filter changes ─
+  // ─── Trigger render when drill-down or anomaly filter changes ─
   useEffect(() => {
     if (!isMapLoaded) return;
     renderClusters();
   }, [isMapLoaded, drillDown.region, drillDown.province, drillDown.filterAnomaly, renderClusters]);
+
+  // ─── "Near Me" Flow (20km) ──────────────────────────────
+  const handleNearMeToggle = useCallback(() => {
+    if (isNearMeActive) {
+      setIsNearMeActive(false);
+      isNearMeActiveRef.current = false;
+      const map = mapRef.current;
+      if (map) {
+        const circleSrc = map.getSource('near-me-circle-source') as mapboxgl.GeoJSONSource | undefined;
+        if (circleSrc) circleSrc.setData({ type: 'FeatureCollection', features: [] });
+        const userSrc = map.getSource('user-location-source') as mapboxgl.GeoJSONSource | undefined;
+        if (userSrc) userSrc.setData({ type: 'FeatureCollection', features: [] });
+      }
+      setSidebarProjects([]);
+      renderClusters();
+      return;
+    }
+
+    if (typeof window === 'undefined' || !('geolocation' in navigator)) {
+      alert('Geolocation is not supported by your browser.');
+      return;
+    }
+
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        setIsLocating(false);
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setUserLocation({ lat, lng });
+        setIsNearMeActive(true);
+        isNearMeActiveRef.current = true;
+
+        const map = mapRef.current;
+        if (map) {
+          map.flyTo({
+            center: [lng, lat],
+            zoom: 12,
+            duration: 1500,
+            essential: true,
+          });
+
+          // Render smooth 20km circle overlay (using Haversine circle geometry)
+          const circleFeature = createGeoJSONCircle(lng, lat, 20);
+          const circleSrc = map.getSource('near-me-circle-source') as mapboxgl.GeoJSONSource | undefined;
+          if (circleSrc) {
+            circleSrc.setData({
+              type: 'FeatureCollection',
+              features: [circleFeature],
+            });
+          }
+
+          const userSrc = map.getSource('user-location-source') as mapboxgl.GeoJSONSource | undefined;
+          if (userSrc) {
+            userSrc.setData({
+              type: 'FeatureCollection',
+              features: [
+                {
+                  type: 'Feature',
+                  geometry: { type: 'Point', coordinates: [lng, lat] },
+                  properties: { title: 'Your Location' },
+                },
+              ],
+            });
+          }
+        }
+
+        // Query projects within 20km
+        try {
+          const res = await fetch(`/api/nearby?lat=${lat}&lng=${lng}&radius=20`);
+          if (res.ok) {
+            const data = await res.json();
+            const projects = data.projects || [];
+            setSidebarProjects(projects);
+
+            if (map) {
+              const features = projects.map((p: any) => ({
+                type: 'Feature',
+                geometry: {
+                  type: 'Point',
+                  coordinates: [Number(p.gpsLng), Number(p.gpsLat)],
+                },
+                properties: {
+                  id: p.id,
+                  i: p.id,
+                  name: p.name,
+                  n: p.name,
+                  category: p.category,
+                  c: p.category,
+                  budgetPHP: p.budgetPHP,
+                  b: p.budgetPHP,
+                  progress: p.progress,
+                  g: p.progress,
+                  flagOverdue: p.flagOverdue,
+                  flagOverpaid: p.flagOverpaid,
+                  flagStalled: p.flagStalled,
+                  k: (p.flagOverpaid || p.flagStalled) ? 2 : (p.flagOverdue || p.flagNeverStarted) ? 1 : 0,
+                },
+              }));
+
+              const clusterSrc = map.getSource(clusterSourceRef.current) as mapboxgl.GeoJSONSource | undefined;
+              if (clusterSrc) {
+                clusterSrc.setData({
+                  type: 'FeatureCollection',
+                  features,
+                });
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error fetching nearby projects:', err);
+        }
+      },
+      (err) => {
+        setIsLocating(false);
+        console.warn('Geolocation failed:', err);
+        alert(
+          err.code === 1
+            ? 'Location access was denied. Please enable location permissions to use Near Me.'
+            : 'Failed to retrieve your location. Please check device GPS settings.'
+        );
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 }
+    );
+  }, [isNearMeActive, mapRef, renderClusters]);
 
   // ─── Setup ALL Mapbox layers + event handlers centrally ─────────────────
   useEffect(() => {
@@ -174,57 +335,7 @@ function MapContent() {
         return;
       }
 
-      // ── 1. BOUNDARY & MASK LAYERS (for drill-down focus) ────
-      if (!map.getSource('selected-mask-source')) {
-        map.addSource('selected-mask-source', {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: [] },
-        });
-
-        map.addLayer({
-          id: 'selected-boundary-mask',
-          type: 'fill',
-          source: 'selected-mask-source',
-          paint: {
-            'fill-color': '#020617',
-            'fill-opacity': 0.62,
-          },
-        });
-      }
-
-      if (!map.getSource('selected-boundary-source')) {
-        map.addSource('selected-boundary-source', {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: [] },
-        });
-
-        // Glowing outer blur line
-        map.addLayer({
-          id: 'selected-boundary-glow',
-          type: 'line',
-          source: 'selected-boundary-source',
-          paint: {
-            'line-color': '#38bdf8',
-            'line-width': 6,
-            'line-blur': 3,
-            'line-opacity': 0.75,
-          },
-        });
-
-        // Sharp vibrant neon inner line
-        map.addLayer({
-          id: 'selected-boundary-line',
-          type: 'line',
-          source: 'selected-boundary-source',
-          paint: {
-            'line-color': '#00f0ff',
-            'line-width': 2.5,
-            'line-opacity': 0.95,
-          },
-        });
-      }
-
-      // ── 2. PROVINCE BORDERS LAYER (No choropleth — pure ultra-crisp borders) ──
+      // ── 1. PROVINCE BORDERS LAYER (Fast clean lightweight boundary display) ──
       if (!map.getSource('province-source')) {
         map.addSource('province-source', {
           type: 'geojson',
@@ -236,33 +347,75 @@ function MapContent() {
           type: 'line',
           source: 'province-source',
           paint: {
-            'line-color': '#cbd5e1',
-            'line-width': 0.75,
-            'line-opacity': 0.4,
+            'line-color': '#38bdf8',
+            'line-width': 1.5,
+            'line-opacity': 0.75,
           },
         });
       }
 
-      // ── 3. REGION BORDERS LAYER (Vibrant sky/cyan outline) ──
-      if (!map.getSource('region-source')) {
-        map.addSource('region-source', {
+      // ── 2. NEAR ME 20KM CIRCLE & USER PIN LAYERS ──
+      if (!map.getSource('near-me-circle-source')) {
+        map.addSource('near-me-circle-source', {
           type: 'geojson',
-          data: '/geo/regions_lowres.json',
+          data: { type: 'FeatureCollection', features: [] },
         });
 
         map.addLayer({
-          id: 'region-borders-layer',
+          id: 'near-me-circle-fill',
+          type: 'fill',
+          source: 'near-me-circle-source',
+          paint: {
+            'fill-color': '#0284c7',
+            'fill-opacity': 0.12,
+          },
+        });
+
+        map.addLayer({
+          id: 'near-me-circle-line',
           type: 'line',
-          source: 'region-source',
+          source: 'near-me-circle-source',
           paint: {
             'line-color': '#38bdf8',
-            'line-width': 1.5,
-            'line-opacity': 0.65,
+            'line-width': 2,
+            'line-opacity': 0.85,
+            'line-dasharray': [2, 2],
           },
         });
       }
 
-      // ── 4. CLUSTER & PIN SOURCE AND LAYERS (248,220 DPWH Projects) ──
+      if (!map.getSource('user-location-source')) {
+        map.addSource('user-location-source', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] },
+        });
+
+        map.addLayer({
+          id: 'user-location-glow',
+          type: 'circle',
+          source: 'user-location-source',
+          paint: {
+            'circle-color': '#38bdf8',
+            'circle-radius': 16,
+            'circle-opacity': 0.35,
+            'circle-blur': 0.5,
+          },
+        });
+
+        map.addLayer({
+          id: 'user-location-pin',
+          type: 'circle',
+          source: 'user-location-source',
+          paint: {
+            'circle-color': '#0284c7',
+            'circle-radius': 7,
+            'circle-stroke-width': 3,
+            'circle-stroke-color': '#ffffff',
+          },
+        });
+      }
+
+      // ── 3. CLUSTER & PIN SOURCE AND LAYERS (248,220 DPWH Projects) ──
       if (!map.getSource(clusterSourceRef.current)) {
         map.addSource(clusterSourceRef.current, {
           type: 'geojson',
@@ -296,7 +449,7 @@ function MapContent() {
           },
         });
 
-        // 2. Cluster glassmorphic core circle
+        // 2. Cluster core circle
         map.addLayer({
           id: 'clusters',
           type: 'circle',
@@ -358,9 +511,9 @@ function MapContent() {
           paint: {
             'circle-color': [
               'case',
-              ['==', ['coalesce', ['get', 'k'], 0], 2], '#ef4444', // RED
-              ['==', ['coalesce', ['get', 'k'], 0], 1], '#eab308', // YELLOW
-              '#10b981', // GREEN
+              ['==', ['coalesce', ['get', 'k'], 0], 2], '#ef4444',
+              ['==', ['coalesce', ['get', 'k'], 0], 1], '#eab308',
+              '#10b981',
             ],
             'circle-radius': [
               'interpolate', ['linear'], ['zoom'],
@@ -382,9 +535,9 @@ function MapContent() {
           paint: {
             'circle-color': [
               'case',
-              ['==', ['coalesce', ['get', 'k'], 0], 2], '#ef4444', // RED
-              ['==', ['coalesce', ['get', 'k'], 0], 1], '#eab308', // YELLOW
-              '#10b981', // GREEN
+              ['==', ['coalesce', ['get', 'k'], 0], 2], '#ef4444',
+              ['==', ['coalesce', ['get', 'k'], 0], 1], '#eab308',
+              '#10b981',
             ],
             'circle-radius': [
               'interpolate', ['linear'], ['zoom'],
@@ -406,8 +559,7 @@ function MapContent() {
         });
 
         // ── EVENT HANDLERS ──────────────────────────────────
-
-        // Click on cluster → smooth animated explosion / zoom-in
+        // Click on cluster → zoom in
         map.on('click', 'clusters', async (e) => {
           const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
           const feature = features[0];
@@ -442,12 +594,12 @@ function MapContent() {
           }
         });
 
-        // Click on unclustered pin → take user to full page detail dossier
+        // Click on unclustered pin → open ProjectInspectionDrawer directly on map
         map.on('click', 'unclustered-point', (e) => {
           const features = map.queryRenderedFeatures(e.point, { layers: ['unclustered-point'] });
           const projId = features[0]?.properties?.i || features[0]?.properties?.id;
           if (projId) {
-            router.push(`/projects/${encodeURIComponent(projId)}`);
+            setSelectedProjectId(projId);
           }
         });
 
@@ -571,159 +723,12 @@ function MapContent() {
       map.off('zoomend', onMoveEnd);
       if (renderTimeoutRef.current) clearTimeout(renderTimeoutRef.current);
     };
-  }, [isMapLoaded, mapRef, renderClusters, router]);
-
-  // ─── Municipality & Barangay Borders on deep drill-down ───
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !isMapLoaded) return;
-
-    if (map.getLayer('municipality-borders-layer')) map.removeLayer('municipality-borders-layer');
-    if (map.getSource('municities-source')) map.removeSource('municities-source');
-
-    if (municitiesGeoJson && map.isStyleLoaded()) {
-      map.addSource('municities-source', {
-        type: 'geojson',
-        data: municitiesGeoJson,
-      });
-
-      map.addLayer({
-        id: 'municipality-borders-layer',
-        type: 'line',
-        source: 'municities-source',
-        paint: {
-          'line-color': '#94a3b8',
-          'line-width': 0.6,
-          'line-opacity': [
-            'interpolate', ['linear'], ['zoom'],
-            7.0, 0,
-            8.5, 0.35,
-            10.0, 0.7
-          ]
-        },
-      });
-    }
-
-    if (map.getLayer('barangay-borders-layer')) map.removeLayer('barangay-borders-layer');
-    if (map.getSource('barangays-source')) map.removeSource('barangays-source');
-
-    if (barangaysGeoJson && map.isStyleLoaded()) {
-      map.addSource('barangays-source', {
-        type: 'geojson',
-        data: barangaysGeoJson
-      });
-      map.addLayer({
-        id: 'barangay-borders-layer',
-        type: 'line',
-        source: 'barangays-source',
-        paint: {
-          'line-color': '#38bdf8',
-          'line-width': 1,
-          'line-opacity': 0.6
-        }
-      });
-    }
-  }, [isMapLoaded, municitiesGeoJson, barangaysGeoJson, mapRef]);
-
-  // ─── Update Boundary Outline & Inverted Dark Mask ──────────
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !isMapLoaded) return;
-
-    // Determine currently selected boundary level
-    let boundaryType: string | null = null;
-    let boundaryName: string = '';
-    let cityFile: string = '';
-
-    if (drillDown.barangay) {
-      boundaryType = 'barangay';
-      boundaryName = drillDown.barangay;
-    } else if (drillDown.municipality) {
-      boundaryType = 'city';
-      boundaryName = drillDown.municipality;
-      cityFile = drillDown.cityFile || '';
-    } else if (drillDown.province) {
-      boundaryType = 'province';
-      boundaryName = drillDown.province;
-    } else if (drillDown.region) {
-      boundaryType = 'region';
-      boundaryName = drillDown.region;
-    }
-
-    const clearBoundary = () => {
-      const boundarySource = map.getSource('selected-boundary-source') as mapboxgl.GeoJSONSource | undefined;
-      const maskSource = map.getSource('selected-mask-source') as mapboxgl.GeoJSONSource | undefined;
-      if (boundarySource) boundarySource.setData({ type: 'FeatureCollection', features: [] });
-      if (maskSource) maskSource.setData({ type: 'FeatureCollection', features: [] });
-    };
-
-    if (!boundaryType) {
-      clearBoundary();
-      return;
-    }
-
-    const params = new URLSearchParams({
-      type: boundaryType,
-      name: boundaryName,
-    });
-    if (cityFile) params.set('cityFile', cityFile);
-    if (drillDown.municipality) params.set('municipality', drillDown.municipality);
-    if (drillDown.province) params.set('province', drillDown.province);
-
-    fetch(`/api/locations/boundary?${params.toString()}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!data) return;
-
-        const updateBoundaryData = () => {
-          const bSource = map.getSource('selected-boundary-source') as mapboxgl.GeoJSONSource | undefined;
-          const mSource = map.getSource('selected-mask-source') as mapboxgl.GeoJSONSource | undefined;
-          if (bSource && data.boundary) {
-            bSource.setData({
-              type: 'FeatureCollection',
-              features: [data.boundary],
-            });
-          }
-          if (mSource && data.mask) {
-            mSource.setData({
-              type: 'FeatureCollection',
-              features: [data.mask],
-            });
-          }
-        };
-
-        if (map.isStyleLoaded() && map.getSource('selected-boundary-source')) {
-          updateBoundaryData();
-        } else {
-          map.once('style.load', updateBoundaryData);
-        }
-
-        if (data.bounds && Array.isArray(data.bounds) && data.bounds.length === 2) {
-          const [[minX, minY], [maxX, maxY]] = data.bounds;
-          if (!(minX === 116 && minY === 4 && maxX === 127 && maxY === 21)) {
-            fitBounds(data.bounds);
-            const targetZoom = boundaryType === 'barangay' ? 14 : boundaryType === 'city' ? 11 : boundaryType === 'province' ? 9 : 7;
-            renderClusters(data.bounds, targetZoom);
-          }
-        }
-      })
-      .catch((err) => {
-        console.error('Failed to load boundary and mask:', err);
-      });
-  }, [
-    isMapLoaded,
-    mapRef,
-    drillDown.region,
-    drillDown.province,
-    drillDown.municipality,
-    drillDown.cityFile,
-    drillDown.barangay,
-    fitBounds,
-    renderClusters,
-  ]);
+  }, [isMapLoaded, mapRef, renderClusters]);
 
   // ─── Update sidebar when municipality/barangay changes ────
   useEffect(() => {
+    if (isNearMeActive) return; // Keep nearby projects in sidebar when in Near Me mode
+
     if (!drillDown.municipality && !drillDown.barangay) {
       setSidebarProjects([]);
       return;
@@ -748,7 +753,7 @@ function MapContent() {
         setSidebarProjects(points.slice(0, 30));
       })
       .catch(console.error);
-  }, [drillDown.region, drillDown.province, drillDown.municipality, drillDown.barangay]);
+  }, [drillDown.region, drillDown.province, drillDown.municipality, drillDown.barangay, isNearMeActive]);
 
   return (
     <div className="relative h-[calc(100vh-64px)] w-full overflow-hidden bg-slate-950">
@@ -776,18 +781,34 @@ function MapContent() {
         setBasemap={setBasemap}
         getProvinces={getProvinces}
         getCities={getCities}
+        isNearMeActive={isNearMeActive}
+        isLocating={isLocating}
+        onNearMeToggle={handleNearMeToggle}
       />
 
       {/* Project Sidebar */}
-      {(drillDown.municipality || drillDown.barangay) && sidebarProjects.length > 0 && (
+      {((drillDown.municipality || drillDown.barangay || isNearMeActive) && sidebarProjects.length > 0) && (
         <ProjectSidebar
-          title={drillDown.barangay || drillDown.municipality}
+          title={isNearMeActive ? 'Projects Near Me (20km)' : (drillDown.barangay || drillDown.municipality)}
           projects={sidebarProjects}
-          onSelectProject={(id) => router.push(`/projects/${encodeURIComponent(id)}`)}
+          onSelectProject={(id) => setSelectedProjectId(id)}
           onClose={() => {
-            drillDown.setMunicipality('');
-            drillDown.setBarangay('');
+            if (isNearMeActive) {
+              handleNearMeToggle();
+            } else {
+              drillDown.setMunicipality('');
+              drillDown.setBarangay('');
+            }
           }}
+        />
+      )}
+
+      {/* Project Inspection Drawer directly on map */}
+      {selectedProjectId && (
+        <ProjectInspectionDrawer
+          projectId={selectedProjectId}
+          onClose={() => setSelectedProjectId(null)}
+          userLocation={userLocation}
         />
       )}
     </div>

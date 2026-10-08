@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import type { Prisma } from '@prisma/client';
 
 // Cache this route on the server for 10 minutes
+export const dynamic = 'force-dynamic';
 export const revalidate = 600;
 
 

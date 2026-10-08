@@ -21,6 +21,16 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `
               if (typeof window !== 'undefined') {
+                if (typeof Cache !== 'undefined' && Cache.prototype && Cache.prototype.put) {
+                  try {
+                    var origPut = Cache.prototype.put;
+                    Cache.prototype.put = function() {
+                      return origPut.apply(this, arguments).catch(function() {
+                        return null;
+                      });
+                    };
+                  } catch (e) {}
+                }
                 if ('serviceWorker' in navigator) {
                   navigator.serviceWorker.getRegistrations().then(function(registrations) {
                     for (var i = 0; i < registrations.length; i++) {
@@ -28,17 +38,11 @@ export default function RootLayout({
                     }
                   }).catch(function() {});
                 }
-                if ('caches' in window) {
-                  caches.keys().then(function(keys) {
-                    for (var i = 0; i < keys.length; i++) {
-                      caches.delete(keys[i]);
-                    }
-                  }).catch(function() {});
-                }
                 window.addEventListener('unhandledrejection', function(event) {
                   if (event && event.reason && (
                     String(event.reason.message || event.reason).indexOf('Cache') !== -1 ||
-                    String(event.reason.message || event.reason).indexOf('put') !== -1
+                    String(event.reason.message || event.reason).indexOf('put') !== -1 ||
+                    String(event.reason.message || event.reason).indexOf('abort') !== -1
                   )) {
                     event.preventDefault();
                   }
