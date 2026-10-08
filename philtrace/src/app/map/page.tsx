@@ -33,10 +33,15 @@ function MapContent() {
   const nationwideClustersRef = useRef<any>(null);
 
   // Core hooks
-  const { mapRef, isMapLoaded, currentZoom, flyTo, fitBounds } = useMapInstance(mapContainerRef, basemap);
+  const { mapRef, isMapLoaded, currentZoom, mapError, flyTo, fitBounds } = useMapInstance(mapContainerRef, basemap);
   const { sortedRegions, centroids, getProvinces, getCities } = useLocationHierarchy();
 
   const drillDown = useDrillDown(centroids, flyTo, fitBounds);
+
+  // Error tracking states
+  const [clusterError, setClusterError] = useState<string | null>(null);
+  const [borderError, setBorderError] = useState<string | null>(null);
+  const errorMessage = mapError || clusterError || borderError;
 
   // Sidebar projects
   const [sidebarProjects, setSidebarProjects] = useState<any[]>([]);
@@ -166,13 +171,16 @@ function MapContent() {
         if (res.ok) {
           const data = await res.json();
           nationwideClustersRef.current = data;
+          setClusterError(null);
           applyNationwideGradually(data);
         } else {
           setLoadingProjects(false);
+          setClusterError(`Failed to load national clusters (HTTP ${res.status})`);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to load nationwide initial clusters:', err);
         setLoadingProjects(false);
+        setClusterError('Failed to load national clusters: ' + (err?.message || 'Network error'));
       }
       return;
     }
@@ -210,12 +218,14 @@ function MapContent() {
       if (reqId !== requestSeqRef.current) return;
       if (!res.ok) {
         setLoadingProjects(false);
+        setClusterError(`Failed to sync clusters (HTTP ${res.status})`);
         return;
       }
       const geojson = await res.json();
       if (reqId !== requestSeqRef.current) return;
 
       if (geojson?.features) {
+        setClusterError(null);
         setTotalPoints(248220);
         const updateData = () => {
           const source = map.getSource(clusterSourceRef.current) as mapboxgl.GeoJSONSource | undefined;
@@ -236,6 +246,7 @@ function MapContent() {
     } catch (err: any) {
       console.error('Error fetching server spatial clusters:', err);
       setLoadingProjects(false);
+      setClusterError('Failed to sync clusters: ' + (err?.message || 'Network error'));
     }
   }, [mapRef, drillDown.province, drillDown.municipality, drillDown.barangay, drillDown.region]);
 
@@ -244,6 +255,13 @@ function MapContent() {
     if (!isMapLoaded) return;
     renderClusters();
   }, [isMapLoaded, drillDown.region, drillDown.province, drillDown.filterAnomaly, renderClusters]);
+
+  // ─── Retry Callback for Error State ───
+  const handleRetry = useCallback(() => {
+    setClusterError(null);
+    setBorderError(null);
+    renderClusters();
+  }, [renderClusters]);
 
   // ─── "Near Me" Flow (20km) ──────────────────────────────
   const handleNearMeToggle = useCallback(() => {
@@ -844,6 +862,8 @@ function MapContent() {
         onNearMeToggle={handleNearMeToggle}
         loadingBorders={loadingBorders}
         loadingProjects={loadingProjects}
+        errorMessage={errorMessage}
+        onRetry={handleRetry}
       />
 
       {/* Project Sidebar */}
@@ -861,6 +881,25 @@ function MapContent() {
             }
           }}
         />
+      )}
+
+      {/* Floating Diagnostic / Error Notification Toast */}
+      {errorMessage && (
+        <div className="absolute bottom-6 left-6 z-30 max-w-md bg-slate-900/95 backdrop-blur-md border border-rose-500/50 text-white p-3.5 rounded-2xl shadow-2xl flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="text-rose-400 text-lg shrink-0">⚠️</span>
+            <div>
+              <p className="font-bold text-rose-200">Map Diagnostics</p>
+              <p className="text-slate-300 text-[11px] leading-tight">{errorMessage}</p>
+            </div>
+          </div>
+          <button
+            onClick={handleRetry}
+            className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] transition shrink-0 shadow cursor-pointer"
+          >
+            Retry ↻
+          </button>
+        </div>
       )}
 
       {/* Project Inspection Drawer directly on map */}

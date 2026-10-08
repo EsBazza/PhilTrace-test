@@ -21,12 +21,16 @@ export function useMapInstance(
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [currentZoom, setCurrentZoom] = useState(5.8);
+  const [mapError, setMapError] = useState<string | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-    if (!token) return;
+    if (!token) {
+      setMapError('Mapbox token is missing (NEXT_PUBLIC_MAPBOX_TOKEN).');
+      return;
+    }
 
     mapboxgl.accessToken = token;
 
@@ -45,8 +49,18 @@ export function useMapInstance(
     map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), 'bottom-right');
     map.addControl(new mapboxgl.GeolocateControl({ trackUserLocation: true }), 'bottom-right');
 
+    map.on('error', (e) => {
+      const msg = e.error?.message || String(e);
+      if (msg.includes('abort') || msg.includes('canceled') || msg.includes('Cache') || msg.includes('fetch')) return;
+      console.warn('[Mapbox Error]', msg);
+      if ((e as any).status === 401 || msg.includes('401') || msg.includes('Unauthorized') || msg.includes('Forbidden')) {
+        setMapError('Invalid Mapbox access token (401 Unauthorized).');
+      }
+    });
+
     const onReady = () => {
       setIsMapLoaded(true);
+      setMapError(null);
     };
 
     map.on('style.load', onReady);
@@ -104,5 +118,5 @@ export function useMapInstance(
     [],
   );
 
-  return { mapRef, isMapLoaded, currentZoom, flyTo, fitBounds };
+  return { mapRef, isMapLoaded, currentZoom, mapError, flyTo, fitBounds };
 }

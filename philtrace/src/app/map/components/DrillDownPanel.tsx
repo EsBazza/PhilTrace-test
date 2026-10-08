@@ -52,6 +52,8 @@ interface DrillDownPanelProps {
   onNearMeToggle?: () => void;
   loadingBorders?: boolean;
   loadingProjects?: boolean;
+  errorMessage?: string | null;
+  onRetry?: () => void;
 }
 
 export default function DrillDownPanel({
@@ -79,6 +81,8 @@ export default function DrillDownPanel({
   onNearMeToggle,
   loadingBorders = false,
   loadingProjects = false,
+  errorMessage = null,
+  onRetry,
 }: DrillDownPanelProps) {
   const currentProvinces = useMemo(() => getProvinces(region), [region, getProvinces]);
   const currentCities = useMemo(() => getCities(region, province), [region, province, getCities]);
@@ -206,6 +210,19 @@ export default function DrillDownPanel({
               <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
               Syncing projects...
             </span>
+          )}
+
+          {/* Active Error / Retry Button */}
+          {errorMessage && (
+            <button
+              onClick={onRetry}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/70 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-bold text-[11px] hover:bg-rose-100 dark:hover:bg-rose-900/60 transition shadow-sm"
+              title="Click to retry loading map data"
+            >
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+              <span>⚠️ {errorMessage}</span>
+              <span className="underline ml-1">Retry ↻</span>
+            </button>
           )}
         </div>
       </div>
