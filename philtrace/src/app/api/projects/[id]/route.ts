@@ -112,11 +112,7 @@ async function fallbackIngestFromGeo(id: string) {
         reviews: {
           orderBy: { createdAt: 'desc' },
         },
-        contractDocument: {
-          include: {
-            engineerSignature: true,
-          },
-        },
+        contractDocument: true,
       },
     });
 
@@ -153,11 +149,7 @@ export async function GET(
         reviews: {
           orderBy: { createdAt: 'desc' },
         },
-        contractDocument: {
-          include: {
-            engineerSignature: true,
-          },
-        },
+        contractDocument: true,
       },
     });
 
@@ -188,11 +180,7 @@ export async function GET(
             reviews: {
               orderBy: { createdAt: 'desc' },
             },
-            contractDocument: {
-              include: {
-                engineerSignature: true,
-              },
-            },
+            contractDocument: true,
           },
         });
       }

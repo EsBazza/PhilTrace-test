@@ -241,6 +241,8 @@ export async function GET(request: NextRequest) {
             flagNeverStarted: Boolean(p.flagNeverStarted),
             contractorRaw: p.contractorRaw || '',
             avgRating: p.avgRating || 0,
+            // 2 = Red (Anomalous / Overpaid / Stalled), 1 = Yellow (Overdue / Delayed), 0 = Green (On Track)
+            k: (p.flagOverpaid || p.flagStalled) ? 2 : (p.flagOverdue || p.flagNeverStarted) ? 1 : 0,
           },
         };
       });

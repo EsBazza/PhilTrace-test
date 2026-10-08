@@ -16,6 +16,7 @@ import {
 import { formatCurrency, cleanContractorName } from '@/lib/format';
 import { ProjectDetailData } from '@/hooks/use-projects';
 import { ESRI_WAYBACK_CATALOG } from '@/lib/constants';
+import ContractorConnectionPanel from '@/components/contractor-connection-panel';
 
 interface OverviewTabProps {
   project: ProjectDetailData;
@@ -182,18 +183,12 @@ export default function OverviewTab({ project, onNavigateTab }: OverviewTabProps
             </p>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between">
-            <button
-              onClick={() => onNavigateTab('connections')}
-              className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 transition"
-            >
-              View Joint Ventures & Ties →
-            </button>
+          <div className="mt-4 pt-3 border-t border-slate-800">
             <Link
               href={`/contractors?highlight=${encodeURIComponent(contractorName)}`}
               className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-white transition"
             >
-              <span>Full Profile</span>
+              <span>View Full Contractor Registry Profile</span>
               <ExternalLink className="h-3 w-3" />
             </Link>
           </div>
@@ -233,7 +228,12 @@ export default function OverviewTab({ project, onNavigateTab }: OverviewTabProps
         </div>
       </div>
 
-      {/* 4. Action Banner: eFOI Portal Request */}
+      {/* 4. Contractor Alliances & Connections */}
+      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+        <ContractorConnectionPanel contractorRaw={project.contractorRaw} />
+      </div>
+
+      {/* 5. Action Banner: eFOI Portal Request */}
       <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-start gap-3">
           <FileQuestion className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />

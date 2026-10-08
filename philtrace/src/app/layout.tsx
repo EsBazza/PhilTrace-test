@@ -16,6 +16,38 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if (typeof window !== 'undefined') {
+                if ('serviceWorker' in navigator) {
+                  navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                    for (var i = 0; i < registrations.length; i++) {
+                      registrations[i].unregister();
+                    }
+                  }).catch(function() {});
+                }
+                if ('caches' in window) {
+                  caches.keys().then(function(keys) {
+                    for (var i = 0; i < keys.length; i++) {
+                      caches.delete(keys[i]);
+                    }
+                  }).catch(function() {});
+                }
+                window.addEventListener('unhandledrejection', function(event) {
+                  if (event && event.reason && (
+                    String(event.reason.message || event.reason).indexOf('Cache') !== -1 ||
+                    String(event.reason.message || event.reason).indexOf('put') !== -1
+                  )) {
+                    event.preventDefault();
+                  }
+                });
+              }
+            `,
+          }}
+        />
+      </head>
       <body className="min-h-screen bg-gray-50 text-gray-900 antialiased overflow-x-hidden">
         <QueryProvider>
           <Header />

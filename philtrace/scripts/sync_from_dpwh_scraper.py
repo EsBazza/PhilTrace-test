@@ -103,8 +103,8 @@ insert_sql = """
 """
 
 with tarfile.open(scraper_tar, "r:xz") as tar:
-    # Process the most recent pages (e.g. pages 1 to 3: ~15,000 recent 2024-2025 contracts)
-    pages_to_process = [f"json/dump-page-{p}-5000.json" for p in range(1, 4)]
+    # Process pages (pages 1 to 50 contain up to 250,000 real contracts)
+    pages_to_process = [f"json/dump-page-{p}-5000.json" for p in range(1, 51)]
     
     for page_name in pages_to_process:
         if page_name not in tar.getnames():

@@ -15,12 +15,33 @@ interface ChoroplethItem {
   avgProgress: number;
 }
 
+// In-memory cache for choropleth stats to eliminate database groupBy overhead on every load
+let cachedChoropleth: { [key: string]: { data: any; timestamp: number } } = {};
+const CHOROPLETH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+// Pre-warm choropleth cache on server startup to avoid 10s cold-start groupBy
+setTimeout(async () => {
+  try {
+    const warmUrl = 'http://localhost:' + (process.env.PORT || '3000') + '/api/map/choropleth';
+    await fetch(warmUrl).catch(() => {});
+  } catch {}
+}, 3000);
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const level = searchParams.get('level') === 'region' ? 'region' : 'province';
-    const regionId = searchParams.get('regionId');
-    const provinceId = searchParams.get('provinceId');
+    const regionId = searchParams.get('regionId') || '';
+    const provinceId = searchParams.get('provinceId') || '';
+
+    const cacheKey = `${level}_${regionId}_${provinceId}`;
+    if (cachedChoropleth[cacheKey] && Date.now() - cachedChoropleth[cacheKey].timestamp < CHOROPLETH_CACHE_TTL_MS) {
+      return Response.json(cachedChoropleth[cacheKey].data, {
+        headers: {
+          'Cache-Control': 'public, max-age=300, stale-while-revalidate=600',
+        },
+      });
+    }
 
     const projectWhere: Prisma.ProjectWhereInput = {};
     const provinceWhere: Prisma.ProvinceWhereInput = {};
@@ -90,6 +111,7 @@ export async function GET(request: NextRequest) {
             flaggedCount: flaggedMap.get(stat.provinceId) || 0,
           };
         });
+      cachedChoropleth[cacheKey] = { data: { data }, timestamp: Date.now() };
       return Response.json({ data });
     } else {
       // Aggregate up to region level
@@ -134,6 +156,7 @@ export async function GET(request: NextRequest) {
         flaggedCount: agg.flaggedCount,
       }));
 
+      cachedChoropleth[cacheKey] = { data: { data }, timestamp: Date.now() };
       return Response.json({ data });
     }
   } catch (error) {

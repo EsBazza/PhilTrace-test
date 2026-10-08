@@ -98,18 +98,26 @@ All unused routes, obsolete scripts, redundant datasets, and conflicting cache s
   * `src/app/nearby/` (consolidated into `/map` Near Me pill).
   * `src/app/regions/` (consolidated into `/map` location drill-down).
   * `src/app/search/` (consolidated into header and contractor search).
+  * Remove obsolete legacy components (`src/components/philippines-map.tsx`, `src/components/chatbot.tsx`, `src/components/contractors/sigma-network.tsx`).
 
 ### 5.2 Dependency Cleanup (`package.json`)
 * Uninstall heavy, unused graph and chart packages:
   * `@react-sigma/core`, `react-sigma`, `sigma`
   * `cytoscape`, `react-cytoscapejs`, `@types/cytoscape`, `@types/react-cytoscapejs`
   * `graphology`, `graphology-layout`, `graphology-layout-forceatlas2`
-  * `recharts` (if not used outside removed graphs)
+  * `recharts` (0 imports across `src/`)
 
-### 5.3 Static Asset & File Cleanup
-* Remove massive, obsolete datasets from `public/geo/` that are no longer needed (such as `all_projects.json` 65MB, `spatial_province_polygons.json` 13MB) or replace them with optimized references.
-* Clean up unneeded test scripts in `scripts/`.
-* Verify `npm run build` runs cleanly with zero lint or TypeScript errors and satisfies Vercel serverless deployment constraints.
+### 5.3 Static Asset & File Cleanup (Vercel 10,000 Files Ceiling Fix)
+* **Purge Vercel-Blocking Subdirectories**:
+  * `public/geo/raw_barangay/` contains **41,743 individual JSON files** and `public/geo/raw_city/` contains **1,644 JSON files**. These break Vercel's hard 10,000 deployment file limit. Purge both folders and fall back to on-demand CDN or compact hierarchy lookup (`full_location_hierarchy.json` 304 KB).
+  * Delete `public/geo/raw_province/` and `public/geo/raw_region/`.
+* **Purge Massive Root & Stale Assets**:
+  * Delete `dpwh_transparency_data.parquet` (24.3 MB in root).
+  * Delete `public/geo/all_projects.json` (65.4 MB) which was causing serverless lambda memory bloat.
+  * Delete nested orphaned build artifacts (e.g. `philtrace/philtrace/`).
+  * Remove obsolete development scratch scripts from `scripts/` (e.g. `test_*.ts`, `inspect_*.py`).
+* **Vercel Prisma Engine Compatibility**:
+  * In `prisma/schema.prisma`, add `binaryTargets = ["native", "rhel-openssl-3.0.x"]` to ensure the Linux Query Engine is bundled for Vercel Lambdas.
 
 ---
 

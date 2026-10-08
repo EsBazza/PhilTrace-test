@@ -11,7 +11,6 @@ export async function GET(
     const contractDoc = await prisma.contractDocument.findUnique({
       where: { projectId: id },
       include: {
-        engineerSignature: true,
         project: {
           select: {
             id: true,

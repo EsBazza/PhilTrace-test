@@ -26,16 +26,10 @@ export interface ContractorConnectionItem {
 
 interface ContractorConnectionPanelProps {
   contractorRaw: string;
-  engineerSignature?: {
-    engineerName: string;
-    engineerTitle: string;
-    district?: string | null;
-  } | null;
 }
 
 export default function ContractorConnectionPanel({
   contractorRaw,
-  engineerSignature,
 }: ContractorConnectionPanelProps) {
   const primaryName = cleanContractorName(contractorRaw || 'Unknown Contractor');
   const jvPartners = parseContractors(contractorRaw).filter(
@@ -145,7 +139,7 @@ export default function ContractorConnectionPanel({
             Known Relationships & Signatories
           </h4>
           <span className="text-xs text-slate-500">
-            {jvPartners.length + connections.length + (engineerSignature ? 1 : 0)} connected
+            {jvPartners.length + connections.length} connected
           </span>
         </div>
 
@@ -181,45 +175,7 @@ export default function ContractorConnectionPanel({
           </div>
         ))}
 
-        {/* 2. District Engineer Signatory */}
-        {engineerSignature && (
-          <div className="group relative ml-4 flex items-center justify-between rounded-lg border border-blue-500/20 bg-blue-950/10 p-3.5 pl-4 transition hover:bg-blue-950/20">
-            <div className="absolute -left-4 top-1/2 h-px w-4 bg-blue-500/40" />
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/20 text-blue-300 font-semibold text-xs border border-blue-500/30">
-                <FileSignature className="h-4 w-4" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-400 border border-blue-500/30">
-                    District Engineer
-                  </span>
-                  {engineerSignature.district && (
-                    <span className="text-xs text-slate-400">
-                      {engineerSignature.district}
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm font-semibold text-slate-200 mt-0.5">
-                  {engineerSignature.engineerName}
-                </p>
-                <p className="text-xs text-slate-400">
-                  {engineerSignature.engineerTitle}
-                </p>
-              </div>
-            </div>
-
-            <Link
-              href="/engineers"
-              className="rounded p-1.5 text-slate-400 hover:text-blue-300 transition"
-              title="View District Engineer network"
-            >
-              <ExternalLink className="h-4 w-4" />
-            </Link>
-          </div>
-        )}
-
-        {/* 3. Database Connections (Politicians, Shell Cos, News Mentions) */}
+        {/* 2. Database Connections (Politicians, Shell Cos, News Mentions) */}
         {connections.map((conn) => {
           let badgeColor = 'bg-slate-800 text-slate-300 border-slate-700';
           let badgeLabel = 'Mention';
@@ -285,7 +241,6 @@ export default function ContractorConnectionPanel({
         {/* Empty state if no connections found */}
         {!isLoading &&
           jvPartners.length === 0 &&
-          !engineerSignature &&
           connections.length === 0 && (
             <div className="rounded-xl border border-dashed border-slate-800 p-8 text-center">
               <Building2 className="mx-auto h-8 w-8 text-slate-600 mb-2" />

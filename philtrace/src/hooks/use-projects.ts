@@ -149,11 +149,6 @@ export interface ProjectDetailData extends ProjectWithRelations {
     tinNumber?: string | null;
     contractDurationDays?: number | null;
     extractionStatus: string;
-    engineerSignature?: {
-      engineerName: string;
-      engineerTitle: string;
-      district?: string | null;
-    } | null;
   } | null;
 }
 

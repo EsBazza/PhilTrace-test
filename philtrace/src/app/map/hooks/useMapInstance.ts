@@ -45,7 +45,16 @@ export function useMapInstance(
     map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), 'bottom-right');
     map.addControl(new mapboxgl.GeolocateControl({ trackUserLocation: true }), 'bottom-right');
 
-    map.on('load', () => setIsMapLoaded(true));
+    const onReady = () => {
+      setIsMapLoaded(true);
+    };
+
+    map.on('style.load', onReady);
+    map.on('load', onReady);
+
+    if (map.isStyleLoaded()) {
+      setIsMapLoaded(true);
+    }
 
     map.on('moveend', () => {
       setCurrentZoom(map.getZoom());
@@ -54,6 +63,8 @@ export function useMapInstance(
     mapRef.current = map;
 
     return () => {
+      map.off('style.load', onReady);
+      map.off('load', onReady);
       map.remove();
       mapRef.current = null;
       setIsMapLoaded(false);
@@ -72,9 +83,9 @@ export function useMapInstance(
       mapRef.current?.flyTo({
         center,
         zoom,
-        duration: 1800,
+        duration: 650,
         essential: true,
-        pitch: zoom > 12 ? 35 : 20,
+        pitch: zoom > 12 ? 30 : 15,
         padding: padding || { top: 50, bottom: 50, left: 350, right: 50 },
       });
     },
@@ -84,7 +95,7 @@ export function useMapInstance(
   const fitBounds = useCallback(
     (bounds: [[number, number], [number, number]], padding?: mapboxgl.PaddingOptions) => {
       mapRef.current?.fitBounds(bounds, {
-        duration: 1800,
+        duration: 650,
         essential: true,
         padding: padding || { top: 60, bottom: 60, left: 370, right: 60 },
         maxZoom: 17,

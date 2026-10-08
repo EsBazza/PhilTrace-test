@@ -23,16 +23,15 @@ import { formatCurrency, formatDate, cleanContractorName } from '@/lib/format';
 import { getRiskScoreTier } from '@/lib/anomaly-flags';
 import OverviewTab from './components/OverviewTab';
 import SatelliteTab from './components/SatelliteTab';
-import NewsTab from './components/NewsTab';
 import FinancialsTab from './components/FinancialsTab';
 import CommunityTab from './components/CommunityTab';
-import ConnectionsTab from './components/ConnectionsTab';
+import TriangulatedRealityCheck from './components/TriangulatedRealityCheck';
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-type TabType = 'overview' | 'satellite' | 'news' | 'financials' | 'community' | 'connections';
+type TabType = 'overview' | 'satellite' | 'financials' | 'community';
 
 export default function ProjectDossierPage({ params }: PageProps) {
   const { id } = use(params);
@@ -49,10 +48,8 @@ export default function ProjectDossierPage({ params }: PageProps) {
       const validTabs: TabType[] = [
         'overview',
         'satellite',
-        'news',
         'financials',
         'community',
-        'connections',
       ];
       if (validTabs.includes(hash)) {
         setActiveTab(hash);
@@ -114,10 +111,8 @@ export default function ProjectDossierPage({ params }: PageProps) {
   const tabs: Array<{ id: TabType; label: string; count?: number }> = [
     { id: 'overview', label: 'Overview' },
     { id: 'satellite', label: 'Satellite Evidence' },
-    { id: 'news', label: 'News & Media' },
     { id: 'financials', label: 'Financials & BOQ' },
     { id: 'community', label: 'Community Reports', count: project.reviews?.length || 0 },
-    { id: 'connections', label: 'Connections' },
   ];
 
   return (
@@ -250,6 +245,14 @@ export default function ProjectDossierPage({ params }: PageProps) {
               </p>
               <span className="text-[10px] text-slate-400">Composite Multi-Factor</span>
             </div>
+          </div>
+
+          {/* Triangulated Reality Check Hero Scorecard */}
+          <div className="pt-2">
+            <TriangulatedRealityCheck
+              project={project}
+              onNavigateTab={(tab) => handleTabChange(tab as TabType)}
+            />
           </div>
 
           {/* Action Buttons Bar */}
@@ -392,20 +395,12 @@ export default function ProjectDossierPage({ params }: PageProps) {
           <SatelliteTab project={project} />
         </div>
 
-        <div className={activeTab === 'news' ? 'block' : 'hidden'}>
-          <NewsTab project={project} />
-        </div>
-
         <div className={activeTab === 'financials' ? 'block' : 'hidden'}>
           <FinancialsTab project={project} />
         </div>
 
         <div className={activeTab === 'community' ? 'block' : 'hidden'}>
           <CommunityTab project={project} onReviewSubmitted={() => refetch()} />
-        </div>
-
-        <div className={activeTab === 'connections' ? 'block' : 'hidden'}>
-          <ConnectionsTab project={project} />
         </div>
       </main>
     </div>
